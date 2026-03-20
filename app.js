@@ -27,15 +27,6 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function toBase64(bytes) {
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 function fromBase64(base64) {
   const binary = atob(base64);
   const out = new Uint8Array(binary.length);
@@ -543,6 +534,24 @@ function renderBackupCards(backups) {
   `).join("");
 }
 
+function getTabLabel(tab) {
+  if (tab === "doku") return "Patienten mit Dokumentation";
+  if (tab === "kilometer") return "Kilometer";
+  return "Geleistete Zeit";
+}
+
+function getCurrentFilteredRows(group) {
+  const filteredTime = filterRows(group.timeEntries);
+  const filteredDocs = filterRows(group.docs);
+  const filteredKm = filterRows(group.travelEntries);
+  return {
+    filteredTime,
+    filteredDocs,
+    filteredKm,
+    currentRows: state.selectedTab === "zeit" ? filteredTime : state.selectedTab === "doku" ? filteredDocs : filteredKm
+  };
+}
+
 function renderZeitTable(rows) {
   if (!rows.length) return `<div class="empty">Keine Zeiteinträge im gewählten Zeitraum.</div>`;
   return `
@@ -552,8 +561,8 @@ function renderZeitTable(rows) {
           <tr>
             <th>Datum</th>
             <th>Patient</th>
+            <th>Geburtsdatum</th>
             <th>Heim</th>
-            <th>Rezept</th>
             <th>Typ</th>
             <th>Minuten</th>
             <th>Notiz</th>
@@ -564,8 +573,8 @@ function renderZeitTable(rows) {
             <tr>
               <td>${escapeHtml(formatDate(row.date))}</td>
               <td>${escapeHtml(row.patientName)}</td>
+              <td>${escapeHtml(row.birthDate || "—")}</td>
               <td>${escapeHtml(row.homeName)}</td>
-              <td>${escapeHtml(row.rezeptLabel)}</td>
               <td>${escapeHtml(row.type)}</td>
               <td>${escapeHtml(String(row.minutes))}</td>
               <td>${escapeHtml(row.note || "—")}</td>
@@ -584,12 +593,11 @@ function renderDokuTable(rows) {
       <table>
         <thead>
           <tr>
-            <th>Datum</th>
+            <th>Datum der Behandlung</th>
             <th>Patient</th>
-            <th>Geburt</th>
+            <th>Geburtsdatum</th>
             <th>Heim</th>
-            <th>Arzt / Rezept</th>
-            <th>Text</th>
+            <th>Doku-Text</th>
           </tr>
         </thead>
         <tbody>
@@ -599,7 +607,6 @@ function renderDokuTable(rows) {
               <td>${escapeHtml(row.patientName)}</td>
               <td>${escapeHtml(row.birthDate || "—")}</td>
               <td>${escapeHtml(row.homeName)}</td>
-              <td>${escapeHtml((row.arzt ? `${row.arzt} · ` : "") + row.rezeptLabel)}</td>
               <td>${escapeHtml(row.text || "—")}</td>
             </tr>
           `).join("")}
@@ -621,7 +628,6 @@ function renderKilometerTable(rows) {
             <th>Nach</th>
             <th>km</th>
             <th>Vergütung</th>
-            <th>Quelle</th>
             <th>Hinweis</th>
           </tr>
         </thead>
@@ -633,7 +639,6 @@ function renderKilometerTable(rows) {
               <td>${escapeHtml(row.toLabel)}</td>
               <td>${escapeHtml(String(row.km))}</td>
               <td>${escapeHtml(kilometerEuroText(row.km))}</td>
-              <td>${escapeHtml(row.source)}</td>
               <td>${escapeHtml(row.note || (row.manualAdjusted ? "manuell angepasst" : "—"))}</td>
             </tr>
           `).join("")}
@@ -641,6 +646,131 @@ function renderKilometerTable(rows) {
       </table>
     </div>
   `;
+}
+
+function makePrintTable(rows, headers, cellFns) {
+  if (!rows.length) return `<p>Keine Einträge im gewählten Zeitraum.</p>`;
+  return `
+    <table>
+      <thead>
+        <tr>${headers.map((item) => `<th>${escapeHtml(item)}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>${cellFns.map((fn) => `<td>${escapeHtml(fn(row))}</td>`).join("")}</tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function openPrintWindow(title, subtitle, tableHtml) {
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1100,height=800");
+  if (!printWindow) {
+    alert("Druckfenster konnte nicht geöffnet werden.");
+    return;
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(`<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>${escapeHtml(title)}</title>
+<style>
+  body{font-family:"Segoe UI",Arial,sans-serif;color:#111827;margin:28px;font-size:13px}
+  h1{font-size:26px;margin:0 0 8px}
+  .sub{color:#475569;margin:0 0 18px;line-height:1.5}
+  table{width:100%;border-collapse:collapse}
+  th,td{border:1px solid #cbd5e1;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f8fafc}
+  @media print{body{margin:12mm}}
+</style>
+</head>
+<body>
+  <h1>${escapeHtml(title)}</h1>
+  <div class="sub">${escapeHtml(subtitle)}</div>
+  ${tableHtml}
+</body>
+</html>`);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => {
+    printWindow.print();
+  }, 250);
+}
+
+function buildPrintSubtitle(group) {
+  const parts = [`Therapeut: ${group.therapistName}`];
+  if (state.filters.from || state.filters.to) {
+    parts.push(`Zeitraum: ${state.filters.from ? formatDate(state.filters.from) : "offen"} bis ${state.filters.to ? formatDate(state.filters.to) : "offen"}`);
+  } else {
+    parts.push("Zeitraum: alle geladenen Daten");
+  }
+  parts.push(`Erstellt: ${formatDateTime(new Date().toISOString())}`);
+  return parts.join(" | ");
+}
+
+function printCurrentTab() {
+  const group = getSelectedGroup();
+  if (!group) return;
+  const { filteredTime, filteredDocs, filteredKm } = getCurrentFilteredRows(group);
+  const title = `FaSt-Viewer – ${getTabLabel(state.selectedTab)}`;
+  const subtitle = buildPrintSubtitle(group);
+
+  if (state.selectedTab === "zeit") {
+    openPrintWindow(
+      title,
+      subtitle,
+      makePrintTable(filteredTime,
+        ["Datum", "Patient", "Geburtsdatum", "Heim", "Typ", "Minuten", "Notiz"],
+        [
+          (row) => formatDate(row.date),
+          (row) => row.patientName,
+          (row) => row.birthDate || "—",
+          (row) => row.homeName,
+          (row) => row.type,
+          (row) => String(row.minutes),
+          (row) => row.note || "—"
+        ]
+      )
+    );
+    return;
+  }
+
+  if (state.selectedTab === "doku") {
+    openPrintWindow(
+      title,
+      subtitle,
+      makePrintTable(filteredDocs,
+        ["Datum der Behandlung", "Patient", "Geburtsdatum", "Heim", "Doku-Text"],
+        [
+          (row) => formatDate(row.date),
+          (row) => row.patientName,
+          (row) => row.birthDate || "—",
+          (row) => row.homeName,
+          (row) => row.text || "—"
+        ]
+      )
+    );
+    return;
+  }
+
+  openPrintWindow(
+    title,
+    subtitle,
+    makePrintTable(filteredKm,
+      ["Datum", "Von", "Nach", "km", "Vergütung", "Hinweis"],
+      [
+        (row) => formatDate(row.date),
+        (row) => row.fromLabel,
+        (row) => row.toLabel,
+        (row) => String(row.km),
+        (row) => kilometerEuroText(row.km),
+        (row) => row.note || (row.manualAdjusted ? "manuell angepasst" : "—")
+      ]
+    )
+  );
 }
 
 function renderMain() {
@@ -655,10 +785,7 @@ function renderMain() {
     return;
   }
 
-  const filteredTime = filterRows(group.timeEntries);
-  const filteredDocs = filterRows(group.docs);
-  const filteredKm = filterRows(group.travelEntries);
-  const currentRows = state.selectedTab === "zeit" ? filteredTime : state.selectedTab === "doku" ? filteredDocs : filteredKm;
+  const { filteredTime, filteredDocs, filteredKm, currentRows } = getCurrentFilteredRows(group);
 
   const summaryStats = {
     timeMinutes: filteredTime.reduce((sum, item) => sum + Number(item.minutes || 0), 0),
@@ -674,16 +801,27 @@ function renderMain() {
 
   el.mainContent.innerHTML = `
     <div class="card">
-      <h1>${escapeHtml(group.therapistName)}</h1>
-      <div class="pills">
-        <span class="pill primary">${group.backups.length} Backup(s)</span>
-        ${group.therapistId ? `<span class="pill">ID: ${escapeHtml(group.therapistId)}</span>` : `<span class="pill">Fallback ohne feste ID</span>`}
-        <span class="pill">Letzter Export: ${escapeHtml(formatDateTime(group.backups[0]?.exportTimestamp || ""))}</span>
+      <div class="card-head">
+        <div>
+          <h1>${escapeHtml(group.therapistName)}</h1>
+          <div class="pills">
+            <span class="pill primary">${group.backups.length} Backup(s)</span>
+            ${group.therapistId ? `<span class="pill">ID: ${escapeHtml(group.therapistId)}</span>` : `<span class="pill">Fallback ohne feste ID</span>`}
+            <span class="pill">Letzter Export: ${escapeHtml(formatDateTime(group.backups[0]?.exportTimestamp || ""))}</span>
+          </div>
+        </div>
       </div>
     </div>
 
     <div class="card">
-      <h2>Zeitraum & Bereich</h2>
+      <div class="card-head">
+        <div>
+          <h2>Zeitraum & Bereich</h2>
+        </div>
+        <div class="actions">
+          <button id="printCurrentBtn" class="outline" type="button">Aktuellen Bereich drucken</button>
+        </div>
+      </div>
       <div class="toolbar">
         <div>
           <label for="filterFrom">Von</label>
@@ -696,6 +834,10 @@ function renderMain() {
         <div>
           <label>&nbsp;</label>
           <button id="resetFilterBtn" class="ghost" type="button">Filter zurücksetzen</button>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button id="printFilterBtn" class="outline" type="button">Mit Filter drucken</button>
         </div>
       </div>
       <div class="spacer"></div>
@@ -716,7 +858,12 @@ function renderMain() {
     </div>
 
     <div class="card">
-      <h2>${state.selectedTab === "zeit" ? "Geleistete Zeit" : state.selectedTab === "doku" ? "Patienten mit Dokumentation" : "Kilometer"}</h2>
+      <div class="card-head">
+        <div><h2>${getTabLabel(state.selectedTab)}</h2></div>
+        <div class="actions">
+          <button id="printTableBtn" class="outline" type="button">Diesen Bereich drucken</button>
+        </div>
+      </div>
       ${contentHtml}
     </div>
 
@@ -739,6 +886,9 @@ function renderMain() {
     state.filters.to = "";
     renderMain();
   });
+  document.getElementById("printCurrentBtn")?.addEventListener("click", printCurrentTab);
+  document.getElementById("printFilterBtn")?.addEventListener("click", printCurrentTab);
+  document.getElementById("printTableBtn")?.addEventListener("click", printCurrentTab);
   el.mainContent.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedTab = button.getAttribute("data-tab") || "zeit";
@@ -786,9 +936,7 @@ async function handleLoad() {
   state.filters.from = "";
   state.filters.to = "";
 
-  if (errors.length && loaded.length) {
-    el.loadMessage.innerHTML = `<div class="error">${escapeHtml(errors.join(" | "))}</div>`;
-  } else if (errors.length) {
+  if (errors.length) {
     el.loadMessage.innerHTML = `<div class="error">${escapeHtml(errors.join(" | "))}</div>`;
   } else {
     el.loadMessage.innerHTML = `<div class="success">${loaded.length} Backup(s) geladen, ${groups.length} Therapeut(en) erkannt.</div>`;
