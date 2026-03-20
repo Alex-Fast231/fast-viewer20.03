@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FaSt-Viewer</title>
+  <meta name="robots" content="noindex,nofollow">
+  <style>
+    :root{
+      --bg:#f3f6fb;
+      --panel:#ffffff;
+      --text:#0f172a;
+      --muted:#64748b;
+      --border:#dbe3ee;
+      --primary:#2563eb;
+      --primary-soft:#dbeafe;
+      --danger:#b91c1c;
+      --success:#166534;
+      --shadow:0 12px 30px rgba(15,23,42,0.08);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+    .app{display:grid;grid-template-columns:360px 1fr;min-height:100vh}
+    .sidebar{background:#0f172a;color:#fff;padding:18px;display:flex;flex-direction:column;gap:16px}
+    .brand{font-size:24px;font-weight:800}
+    .sub{color:#cbd5e1;font-size:14px;line-height:1.45}
+    .panel{background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:16px}
+    .main{padding:22px;overflow:auto}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
+    h1,h2,h3{margin:0 0 12px}
+    p{line-height:1.5}
+    label{display:block;margin:10px 0 6px;font-weight:700;font-size:14px}
+    input,select,button,textarea{width:100%;font:inherit}
+    input,select,textarea{padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:#fff}
+    button{border:none;border-radius:12px;padding:12px 14px;background:var(--primary);color:#fff;font-weight:700;cursor:pointer}
+    button.secondary{background:#475569}
+    button.ghost{background:#e2e8f0;color:#0f172a}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .row-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .muted{color:var(--muted)}
+    .error{color:#fecaca;background:#7f1d1d;padding:10px 12px;border-radius:12px;font-weight:700}
+    .success{color:#dcfce7;background:#14532d;padding:10px 12px;border-radius:12px;font-weight:700}
+    .list{display:flex;flex-direction:column;gap:10px}
+    .therapist-btn{display:block;text-align:left;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:14px;border-radius:14px}
+    .therapist-btn.active{background:#1d4ed8;border-color:#60a5fa}
+    .therapist-meta{display:block;color:#cbd5e1;font-size:13px;margin-top:6px;line-height:1.4}
+    .pills{display:flex;flex-wrap:wrap;gap:8px}
+    .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;background:#e2e8f0;color:#334155;font-size:12px;font-weight:700}
+    .pill.primary{background:var(--primary-soft);color:#1d4ed8}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .stat{background:#f8fafc;border:1px solid var(--border);border-radius:16px;padding:14px}
+    .stat strong{display:block;font-size:24px}
+    .tabs{display:flex;gap:10px;flex-wrap:wrap}
+    .tab{width:auto;background:#e2e8f0;color:#0f172a;padding:10px 14px;border-radius:999px}
+    .tab.active{background:var(--primary);color:#fff}
+    .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+    .toolbar > div{min-width:140px;flex:1}
+    .table-wrap{overflow:auto;border:1px solid var(--border);border-radius:16px}
+    table{width:100%;border-collapse:collapse;background:#fff}
+    th,td{padding:12px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;font-size:14px}
+    th{background:#f8fafc;position:sticky;top:0}
+    .empty{padding:30px;text-align:center;color:var(--muted)}
+    .small{font-size:13px}
+    .backup-card{border:1px solid var(--border);border-radius:16px;padding:14px;background:#f8fafc}
+    .spacer{height:6px}
+    @media (max-width: 980px){
+      .app{grid-template-columns:1fr}
+      .sidebar{padding-bottom:10px}
+      .stats,.row,.row-3{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <div class="brand">FaSt-Viewer</div>
+        <div class="sub">Lokaler Viewer für FaSt-Doku-Backups. ZIP laden, Masterkey eingeben, Daten nach Therapeut und Zeitraum auslesen.</div>
+      </div>
+
+      <div class="panel">
+        <label for="backupFiles">Backup-Dateien</label>
+        <input id="backupFiles" type="file" accept=".zip" multiple>
+        <label for="masterkey">Masterkey / Praxispasswort</label>
+        <input id="masterkey" type="password" autocomplete="current-password" placeholder="Praxispasswort">
+        <button id="loadBtn">Backups laden</button>
+        <button id="clearBtn" class="secondary" type="button">Geladene Daten leeren</button>
+        <div class="spacer"></div>
+        <div id="loadMessage" class="small muted">Noch keine Backups geladen.</div>
+      </div>
+
+      <div class="panel">
+        <h3>Therapeuten</h3>
+        <div id="therapistList" class="list">
+          <div class="muted small">Nach dem Import erscheinen hier die Therapeuten.</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main" id="mainContent">
+      <div class="card">
+        <h1>Viewer bereit</h1>
+        <p>Dieser Viewer liest FaSt-Doku-Backups lokal im Browser. Nach dem Import kannst du nach Therapeut filtern und die Bereiche <strong>Zeit</strong>, <strong>Patienten mit Dokumentation</strong> und <strong>Kilometer</strong> nach Zeitraum auswerten.</p>
+        <p class="muted">Hinweis: Das aktuelle App-Backup enthält offenbar keinen festen Therapeuten-Schlüssel. Der Viewer nutzt daher automatisch zuerst eine vorhandene <strong>therapistId</strong> und sonst ersatzweise den Namen als Gruppierung.</p>
+      </div>
+    </main>
+  </div>
+
+  <script src="zip-full.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
