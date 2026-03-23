@@ -856,15 +856,33 @@ function getPracticeHeaderLines(settings = {}) {
   return lines;
 }
 
+function formatDoctorReportBodyHtml(content = "") {
+  const labels = [
+    'Stand der Therapie:',
+    'Besonderheiten während des Behandlungsverlaufs:',
+    'Fortsetzung der Therapie vorgeschlagen:',
+    'Prognostische Einschätzung:'
+  ];
+
+  let html = escapeAndPreserveLineBreaks(content || '').replace(
+    /Therapiebericht an .*? vom .*?(<br>|$)/,
+    ''
+  );
+
+  labels.forEach((label) => {
+    const escapedLabel = escapeHtml(label);
+    html = html.replaceAll(escapedLabel, `<strong>${escapedLabel}</strong>`);
+  });
+
+  return html;
+}
+
 function renderDoctorReportPrintHtml({ settings = {}, patient = {}, rezept = {}, report = {} }) {
   const headerLines = getPracticeHeaderLines(settings);
   const createdDate = formatIsoDateShort(report?.createdAt);
   const subjectDate = formatCurrentDateShort(new Date(report?.createdAt || Date.now()));
   const patientName = `${patient?.firstName || ""} ${patient?.lastName || ""}`.trim() || 'Patient/in';
-  const bodyHtml = escapeAndPreserveLineBreaks(report?.content || '').replace(
-    /Therapiebericht an .*? vom .*?(<br>|$)/,
-    ''
-  );
+  const bodyHtml = formatDoctorReportBodyHtml(report?.content || '');
 
   return `
     <style>
