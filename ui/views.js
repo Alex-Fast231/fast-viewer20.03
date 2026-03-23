@@ -2034,28 +2034,15 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
                               ${reports.length === 0 ? `<p class="muted">Noch keine Arztberichte gespeichert.</p>` : `
                                 <div class="list-stack">
                                   ${reports.map(report => `
-                                    <details class="accordion" style="margin-bottom:8px;">
-                                      <summary>
-                                        <span>${escapeHtml(formatIsoDateShort(report.createdAt))}</span>
-                                        <span class="muted">Bericht</span>
-                                      </summary>
-                                      <div class="accordion-body">
-                                        <div class="compact-meta" style="margin-bottom:10px;">
-                                          Erstellt: ${escapeHtml(formatIsoDateShort(report.createdAt))}<br>
-                                          Zuletzt geändert: ${escapeHtml(formatIsoDateShort(report.updatedAt || report.createdAt))}
+                                    <div class="compact-card" style="padding:14px;">
+                                      <div class="row" style="justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px;">
+                                        <div>
+                                          <div style="font-weight:700;">${escapeHtml(formatIsoDateShort(report.createdAt))}</div>
+                                          <div class="compact-meta">Zuletzt geändert: ${escapeHtml(formatIsoDateShort(report.updatedAt || report.createdAt))}</div>
                                         </div>
-                                        <label for="doctorReportText-${report.reportId}">Arztbericht</label>
-                                        <div class="compact-card" style="margin-bottom:10px; padding:14px;">
-                                          <textarea id="doctorReportText-${report.reportId}" rows="14" style="width:100%; border:none; outline:none; resize:vertical; background:transparent; font:inherit; color:inherit; min-height:280px;">${escapeHtml(report.content || '')}</textarea>
-                                        </div>
-                                        <div class="row" style="margin-bottom:8px;">
-                                          <button class="saveDoctorReportBtn" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}" data-report-id="${report.reportId}">Speichern</button>
-                                          <button class="printDoctorReportBtn secondary" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}" data-report-id="${report.reportId}">Drucken</button>
-                                          <button class="deleteDoctorReportBtn secondary" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}" data-report-id="${report.reportId}">Löschen</button>
-                                        </div>
-                                        <div id="doctorReportMsg-${report.reportId}"></div>
+                                        <button class="openDoctorReportBtn secondary" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}" data-report-id="${report.reportId}">Öffnen</button>
                                       </div>
-                                    </details>
+                                    </div>
                                   `).join('')}
                                 </div>
                               `}
@@ -2262,6 +2249,7 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
   document.querySelectorAll('.createDoctorReportBtn').forEach((btn) => {
     btn.onclick = async () => {
       try {
+        let createdReportId = '';
         mutateRuntimeData((data) => {
           const currentHome = getHomeById(data, homeId);
           const currentPatient = getPatientById(currentHome, btn.dataset.patientId);
@@ -2269,8 +2257,9 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
           if (!currentPatient || !rezept) throw new Error('Rezept nicht gefunden');
           const reports = ensureDoctorReportsState(rezept);
           const now = new Date().toISOString();
+          createdReportId = `report_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           reports.unshift({
-            reportId: `report_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            reportId: createdReportId,
             content: buildDoctorReportTemplate({
               patient: { ...currentPatient, homeName: currentHome?.name || '' },
               rezept
@@ -2280,7 +2269,14 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
           });
         });
         await queuePersistRuntimeData();
-        showHomeDetailView({ onLock, homeId, searchText });
+        showDoctorReportEditorView({
+          onLock,
+          homeId,
+          patientId: btn.dataset.patientId,
+          rezeptId: btn.dataset.rezeptId,
+          reportId: createdReportId,
+          searchText
+        });
       } catch (err) {
         console.error(err);
         alert(err?.message || 'Arztbericht konnte nicht erstellt werden.');
@@ -2288,90 +2284,16 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
     };
   });
 
-  document.querySelectorAll('.saveDoctorReportBtn').forEach((btn) => {
-    btn.onclick = async () => {
-      const reportId = btn.dataset.reportId;
-      const msg = document.getElementById(`doctorReportMsg-${reportId}`);
-      if (msg) {
-        msg.className = 'error';
-        msg.textContent = '';
-      }
-
-      try {
-        const textarea = document.getElementById(`doctorReportText-${reportId}`);
-        const content = textarea?.value?.trim() || '';
-        if (!content) {
-          if (msg) msg.textContent = 'Bitte einen Berichtstext eingeben.';
-          return;
-        }
-
-        mutateRuntimeData((data) => {
-          const currentHome = getHomeById(data, homeId);
-          const currentPatient = getPatientById(currentHome, btn.dataset.patientId);
-          const rezept = getRezeptById(currentPatient, btn.dataset.rezeptId);
-          const report = ensureDoctorReportsState(rezept).find((item) => item.reportId === reportId);
-          if (!report) throw new Error('Bericht nicht gefunden');
-          report.content = content;
-          report.updatedAt = new Date().toISOString();
-        });
-        await queuePersistRuntimeData();
-        if (msg) {
-          msg.className = 'success';
-          msg.textContent = 'Arztbericht gespeichert.';
-        }
-      } catch (err) {
-        console.error(err);
-        if (msg) msg.textContent = 'Arztbericht konnte nicht gespeichert werden.';
-      }
-    };
-  });
-
-  document.querySelectorAll('.printDoctorReportBtn').forEach((btn) => {
+  document.querySelectorAll('.openDoctorReportBtn').forEach((btn) => {
     btn.onclick = () => {
-      try {
-        const currentHome = getHomeById(getRuntimeData(), homeId);
-        const currentPatient = getPatientById(currentHome, btn.dataset.patientId);
-        const rezept = getRezeptById(currentPatient, btn.dataset.rezeptId);
-        const report = ensureDoctorReportsState(rezept).find((item) => item.reportId === btn.dataset.reportId);
-        if (!currentPatient || !rezept || !report) throw new Error('Bericht nicht gefunden');
-        const textarea = document.getElementById(`doctorReportText-${report.reportId}`);
-        const previewReport = {
-          ...report,
-          content: textarea?.value?.trim() || report.content || ''
-        };
-        openLetterPreview(
-          `Arztbericht ${currentPatient.lastName || ''}`.trim(),
-          renderDoctorReportPrintHtml({
-            settings: getRuntimeData()?.settings || {},
-            patient: { ...currentPatient, homeName: currentHome?.name || '' },
-            rezept,
-            report: previewReport
-          })
-        );
-      } catch (err) {
-        console.error(err);
-        alert(err?.message || 'Arztbericht konnte nicht gedruckt werden.');
-      }
-    };
-  });
-
-  document.querySelectorAll('.deleteDoctorReportBtn').forEach((btn) => {
-    btn.onclick = async () => {
-      if (!confirm('Diesen Arztbericht wirklich löschen?')) return;
-      try {
-        mutateRuntimeData((data) => {
-          const currentHome = getHomeById(data, homeId);
-          const currentPatient = getPatientById(currentHome, btn.dataset.patientId);
-          const rezept = getRezeptById(currentPatient, btn.dataset.rezeptId);
-          const reports = ensureDoctorReportsState(rezept);
-          rezept.doctorReports = reports.filter((item) => item.reportId !== btn.dataset.reportId);
-        });
-        await queuePersistRuntimeData();
-        showHomeDetailView({ onLock, homeId, searchText });
-      } catch (err) {
-        console.error(err);
-        alert(err?.message || 'Arztbericht konnte nicht gelöscht werden.');
-      }
+      showDoctorReportEditorView({
+        onLock,
+        homeId,
+        patientId: btn.dataset.patientId,
+        rezeptId: btn.dataset.rezeptId,
+        reportId: btn.dataset.reportId,
+        searchText
+      });
     };
   });
 
@@ -2399,6 +2321,134 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
       }
     };
   });
+}
+
+
+export function showDoctorReportEditorView({ onLock, homeId, patientId, rezeptId, reportId, searchText = "" }) {
+  bindLockButton(onLock);
+  setCurrentView("doctor-report-editor", { homeId, patientId, rezeptId, reportId, searchText });
+
+  const runtimeData = getRuntimeData();
+  const home = getHomeById(runtimeData, homeId);
+  const patient = getPatientById(home, patientId);
+  const rezept = getRezeptById(patient, rezeptId);
+  const report = ensureDoctorReportsState(rezept).find((item) => item.reportId === reportId);
+
+  if (!home || !patient || !rezept || !report) {
+    showHomeDetailView({ onLock, homeId, searchText });
+    return;
+  }
+
+  const patientName = `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || 'Patient/in';
+
+  render(`
+    <div class="card">
+      <h2>Arztbericht</h2>
+      <p class="muted">Patient: ${escapeHtml(patientName)} · Rezept: ${escapeHtml(rezeptSummary(rezept))}</p>
+      <button id="backDoctorReportBtn" class="secondary">Zurück zur Patientenübersicht</button>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
+        <div>
+          <div><strong>Erstellt:</strong> ${escapeHtml(formatIsoDateShort(report.createdAt))}</div>
+          <div class="muted">Zuletzt geändert: ${escapeHtml(formatIsoDateShort(report.updatedAt || report.createdAt))}</div>
+        </div>
+        <div class="muted" style="text-align:right;">Arzt: ${escapeHtml(rezept.arzt || '—')}<br>Verordnung vom ${escapeHtml(rezept.ausstell || '—')}</div>
+      </div>
+
+      <label for="doctorReportEditorText">Arztbericht</label>
+      <div class="compact-card" style="margin-bottom:14px; padding:16px;">
+        <textarea id="doctorReportEditorText" rows="22" style="width:100%; border:none; outline:none; resize:vertical; background:transparent; font:inherit; color:inherit; min-height:560px; line-height:1.5;">${escapeHtml(report.content || '')}</textarea>
+      </div>
+
+      <div class="row" style="margin-bottom:8px; flex-wrap:wrap;">
+        <button id="saveDoctorReportEditorBtn">Speichern</button>
+        <button id="printDoctorReportEditorBtn" class="secondary">Drucken</button>
+        <button id="deleteDoctorReportEditorBtn" class="secondary">Löschen</button>
+      </div>
+      <div id="doctorReportEditorMsg"></div>
+    </div>
+  `);
+
+  document.getElementById('backDoctorReportBtn').onclick = () => {
+    showHomeDetailView({ onLock, homeId, searchText });
+  };
+
+  document.getElementById('saveDoctorReportEditorBtn').onclick = async () => {
+    const msg = document.getElementById('doctorReportEditorMsg');
+    msg.className = 'error';
+    msg.textContent = '';
+
+    try {
+      const content = document.getElementById('doctorReportEditorText').value.trim();
+      if (!content) {
+        msg.textContent = 'Bitte einen Berichtstext eingeben.';
+        return;
+      }
+
+      mutateRuntimeData((data) => {
+        const currentHome = getHomeById(data, homeId);
+        const currentPatient = getPatientById(currentHome, patientId);
+        const currentRezept = getRezeptById(currentPatient, rezeptId);
+        const currentReport = ensureDoctorReportsState(currentRezept).find((item) => item.reportId === reportId);
+        if (!currentReport) throw new Error('Bericht nicht gefunden');
+        currentReport.content = content;
+        currentReport.updatedAt = new Date().toISOString();
+      });
+      await queuePersistRuntimeData();
+      msg.className = 'success';
+      msg.textContent = 'Arztbericht gespeichert.';
+      showDoctorReportEditorView({ onLock, homeId, patientId, rezeptId, reportId, searchText });
+    } catch (err) {
+      console.error(err);
+      msg.textContent = 'Arztbericht konnte nicht gespeichert werden.';
+    }
+  };
+
+  document.getElementById('printDoctorReportEditorBtn').onclick = () => {
+    try {
+      const currentHome = getHomeById(getRuntimeData(), homeId);
+      const currentPatient = getPatientById(currentHome, patientId);
+      const currentRezept = getRezeptById(currentPatient, rezeptId);
+      const currentReport = ensureDoctorReportsState(currentRezept).find((item) => item.reportId === reportId);
+      if (!currentHome || !currentPatient || !currentRezept || !currentReport) throw new Error('Bericht nicht gefunden');
+      const previewReport = {
+        ...currentReport,
+        content: document.getElementById('doctorReportEditorText').value.trim() || currentReport.content || ''
+      };
+      openLetterPreview(
+        `Arztbericht ${currentPatient.lastName || ''}`.trim(),
+        renderDoctorReportPrintHtml({
+          settings: getRuntimeData()?.settings || {},
+          patient: { ...currentPatient, homeName: currentHome?.name || '' },
+          rezept: currentRezept,
+          report: previewReport
+        })
+      );
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || 'Arztbericht konnte nicht gedruckt werden.');
+    }
+  };
+
+  document.getElementById('deleteDoctorReportEditorBtn').onclick = async () => {
+    if (!confirm('Diesen Arztbericht wirklich löschen?')) return;
+    try {
+      mutateRuntimeData((data) => {
+        const currentHome = getHomeById(data, homeId);
+        const currentPatient = getPatientById(currentHome, patientId);
+        const currentRezept = getRezeptById(currentPatient, rezeptId);
+        const reports = ensureDoctorReportsState(currentRezept);
+        currentRezept.doctorReports = reports.filter((item) => item.reportId !== reportId);
+      });
+      await queuePersistRuntimeData();
+      showHomeDetailView({ onLock, homeId, searchText });
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || 'Arztbericht konnte nicht gelöscht werden.');
+    }
+  };
 }
 
 export function showPatientDetailView({ onLock, homeId, patientId }) {
@@ -3764,6 +3814,17 @@ export function resumeCurrentView({ onLock }) {
       patientId: context.patientId,
       rezeptId: context.rezeptId,
       entryId: context.entryId
+    });
+  }
+
+  if (view === "doctor-report-editor") {
+    return showDoctorReportEditorView({
+      onLock,
+      homeId: context.homeId,
+      patientId: context.patientId,
+      rezeptId: context.rezeptId,
+      reportId: context.reportId,
+      searchText: context.searchText || ""
     });
   }
 
