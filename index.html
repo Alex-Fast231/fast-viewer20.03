@@ -3,125 +3,357 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FaSt-Viewer</title>
+  <title>FaSt-Doku</title>
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#1e293b">
   <meta name="robots" content="noindex,nofollow">
+
   <style>
     :root{
-      --bg:#eef3f9;
-      --panel:#ffffff;
+      --bg:#f1f5f9;
+      --card:#ffffff;
       --text:#0f172a;
-      --muted:#475569;
-      --border:#d6deea;
-      --primary:#1d4ed8;
-      --primary-soft:#dbeafe;
-      --sidebar:#0b1220;
-      --sidebar-panel:#111c31;
-      --sidebar-border:#23314d;
-      --shadow:0 10px 26px rgba(15,23,42,0.06);
+      --muted:#64748b;
+      --header:#1e293b;
+      --primary:#2563eb;
+      --danger:#b91c1c;
+      --border:#dbe3ee;
     }
-    *{box-sizing:border-box}
-    html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
-    body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text)}
-    .app{display:grid;grid-template-columns:320px 1fr;min-height:100vh}
-    .sidebar{background:var(--sidebar);color:#fff;padding:20px 18px;display:flex;flex-direction:column;gap:16px;border-right:1px solid #16233c}
-    .brand{font-size:30px;font-weight:800;letter-spacing:-0.02em;line-height:1.05;color:#fff}
-    .sub{color:#dbe5f2;font-size:14px;line-height:1.5;margin-top:8px}
-    .panel{background:var(--sidebar-panel);border:1px solid var(--sidebar-border);border-radius:16px;padding:15px}
-    .main{padding:22px;overflow:auto}
-    .card{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
-    h1,h2,h3{margin:0 0 12px;letter-spacing:-0.02em}
-    h1{font-size:38px;line-height:1.08}
-    h2{font-size:30px;line-height:1.12}
-    h3{font-size:20px;line-height:1.2}
-    p{line-height:1.55}
-    label{display:block;margin:10px 0 6px;font-weight:700;font-size:14px}
-    input,select,button,textarea{width:100%;font:inherit}
-    input,select,textarea{padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:#fff;color:var(--text)}
-    .sidebar input,.sidebar select,.sidebar textarea{border-color:#334766;background:#fff;color:#111827}
-    button{border:none;border-radius:12px;padding:12px 14px;background:var(--primary);color:#fff;font-weight:700;cursor:pointer;transition:filter .15s ease,transform .15s ease}
-    button:hover{filter:brightness(0.98)}
-    button:active{transform:translateY(1px)}
-    button.secondary{background:#334155}
-    button.ghost{background:#e2e8f0;color:#0f172a}
-    button.outline{background:#fff;color:var(--text);border:1px solid var(--border)}
-    button:disabled{opacity:.6;cursor:not-allowed}
-    .muted{color:var(--muted)}
-    .error{color:#fecaca;background:#7f1d1d;padding:10px 12px;border-radius:12px;font-weight:700}
-    .success{color:#dcfce7;background:#14532d;padding:10px 12px;border-radius:12px;font-weight:700}
-    .list{display:flex;flex-direction:column;gap:10px}
-    .therapist-btn{display:block;text-align:left;background:#182640;border:1px solid #294060;color:#fff;padding:14px;border-radius:14px}
-    .therapist-btn.active{background:#1d4ed8;border-color:#7fb0ff}
-    .therapist-meta{display:block;color:#dbe5f2;font-size:13px;margin-top:6px;line-height:1.45}
-    .pills{display:flex;flex-wrap:wrap;gap:8px}
-    .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 10px;background:#e2e8f0;color:#334155;font-size:12px;font-weight:700}
-    .pill.primary{background:var(--primary-soft);color:#1d4ed8}
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-    .stat{background:#f8fafc;border:1px solid var(--border);border-radius:16px;padding:14px}
-    .stat strong{display:block;font-size:26px;line-height:1.1}
-    .tabs{display:flex;gap:10px;flex-wrap:wrap}
-    .tab{width:auto;background:#e2e8f0;color:#0f172a;padding:10px 14px;border-radius:999px}
-    .tab.active{background:var(--primary);color:#fff}
-    .toolbar{display:grid;grid-template-columns:minmax(160px,1fr) minmax(160px,1fr) auto auto;gap:12px;align-items:end}
-    .table-wrap{overflow:auto;border:1px solid var(--border);border-radius:16px}
-    table{width:100%;border-collapse:collapse;background:#fff}
-    th,td{padding:12px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;font-size:14px}
-    th{background:#f8fafc;position:sticky;top:0}
-    .empty{padding:30px;text-align:center;color:var(--muted)}
-    .small{font-size:13px}
-    .backup-card{border:1px solid var(--border);border-radius:16px;padding:14px;background:#f8fafc}
-    .spacer{height:6px}
-    .card-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
-    .actions{display:flex;gap:10px;flex-wrap:wrap}
 
-    @media (max-width: 1100px){
-      .app{grid-template-columns:1fr}
-      .toolbar{grid-template-columns:1fr}
-      .stats{grid-template-columns:1fr 1fr}
-      h1{font-size:30px}
-      h2{font-size:24px}
+    *{ box-sizing:border-box; }
+
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      background:var(--bg);
+      color:var(--text);
     }
-    @media (max-width: 700px){
-      .stats{grid-template-columns:1fr}
+
+    header{
+      background:var(--header);
+      color:#fff;
+      padding:16px 18px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
     }
+
+    .brand{
+      font-size:20px;
+      font-weight:700;
+    }
+
+    .header-actions button{
+      width:auto;
+      margin-top:0;
+      padding:10px 14px;
+    }
+
+    main{
+      max-width:760px;
+      margin:0 auto;
+      padding:28px 18px 40px;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:22px;
+      box-shadow:0 10px 30px rgba(15,23,42,0.08);
+      margin-bottom:16px;
+    }
+
+    h1,h2,h3{ margin-top:0; }
+    p{ line-height:1.45; }
+
+    label{
+      display:block;
+      margin-top:14px;
+      margin-bottom:6px;
+      font-weight:600;
+    }
+
+    input,
+    select,
+    textarea{
+      width:100%;
+      padding:12px 14px;
+      border-radius:12px;
+      border:1px solid var(--border);
+      font-size:16px;
+      background:#fff;
+      box-sizing:border-box;
+      appearance:none;
+      -webkit-appearance:none;
+    }
+
+    textarea{
+      min-height:120px;
+      resize:vertical;
+      font-family:inherit;
+      line-height:1.4;
+    }
+
+    button{
+      width:100%;
+      padding:12px 14px;
+      border:none;
+      border-radius:12px;
+      background:var(--primary);
+      color:#fff;
+      font-size:15px;
+      font-weight:600;
+      cursor:pointer;
+      margin-top:16px;
+    }
+
+    button.secondary{
+      background:#475569;
+    }
+
+    button.danger{
+      background:var(--danger);
+    }
+
+    .muted{
+      color:var(--muted);
+      font-size:14px;
+    }
+
+    .error{
+      margin-top:12px;
+      color:var(--danger);
+      font-weight:600;
+    }
+
+    .success{
+      margin-top:12px;
+      color:#166534;
+      font-weight:600;
+    }
+
+    .row{
+      display:flex;
+      gap:12px;
+    }
+
+    .row > *{
+      flex:1;
+    }
+
+    .pill{
+      display:inline-block;
+      font-size:12px;
+      background:#e2e8f0;
+      color:#334155;
+      padding:4px 8px;
+      border-radius:999px;
+      margin-right:6px;
+    }
+
+    pre.log{
+      background:#0f172a;
+      color:#e2e8f0;
+      border-radius:12px;
+      padding:14px;
+      overflow:auto;
+      font-size:12px;
+      line-height:1.4;
+      white-space:pre-wrap;
+    }
+
+.pill-green{
+  display:inline-block;
+  font-size:12px;
+  background:#dcfce7;
+  color:#166534;
+  padding:4px 8px;
+  border-radius:999px;
+  margin-right:6px;
+}
+
+.pill-orange{
+  display:inline-block;
+  font-size:12px;
+  background:#ffedd5;
+  color:#c2410c;
+  padding:4px 8px;
+  border-radius:999px;
+  margin-right:6px;
+}
+
+.pill-red{
+  display:inline-block;
+  font-size:12px;
+  background:#fee2e2;
+  color:#b91c1c;
+  padding:4px 8px;
+  border-radius:999px;
+  margin-right:6px;
+}
+
+.pill-gray{
+  display:inline-block;
+  font-size:12px;
+  background:#e5e7eb;
+  color:#374151;
+  padding:4px 8px;
+  border-radius:999px;
+  margin-right:6px;
+}
+
+.pill-blue{
+  display:inline-block;
+  font-size:12px;
+  background:#dbeafe;
+  color:#1d4ed8;
+  padding:4px 8px;
+  border-radius:999px;
+  margin-right:6px;
+}
+
+.accordion{
+  border:1px solid var(--border);
+  border-radius:14px;
+  background:#fff;
+  margin-bottom:12px;
+  overflow:hidden;
+}
+
+.accordion summary{
+  list-style:none;
+  cursor:pointer;
+  padding:14px 16px;
+  font-weight:600;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  background:#f8fafc;
+}
+
+.accordion summary::-webkit-details-marker{
+  display:none;
+}
+
+.accordion-body{
+  padding:14px 16px;
+  border-top:1px solid var(--border);
+}
+
+.compact-card{
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:12px;
+  margin-bottom:10px;
+  background:#fff;
+}
+
+.compact-meta{
+  font-size:13px;
+  color:var(--muted);
+  line-height:1.45;
+}
+
+
+
+    .action-row-wrap{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+    }
+
+    .action-row-wrap > *{
+      flex:1 1 160px;
+      min-width:0;
+    }
+
+    .checkbox-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:12px;
+      align-items:center;
+    }
+
+    .check-chip{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+      font-weight:600;
+      cursor:pointer;
+      flex:1 1 180px;
+      min-width:0;
+    }
+
+    .check-chip input[type="checkbox"]{
+      width:auto !important;
+      margin:0;
+      cursor:pointer;
+      transform:scale(1.15);
+      accent-color: var(--primary);
+      flex:0 0 auto;
+    }
+
+    .check-chip.is-checked{
+      background: rgba(37,99,235,.08);
+      border-color: var(--primary);
+      box-shadow: inset 0 0 0 1px rgba(37,99,235,.18);
+    }
+
+    
+    .compact-card.selectable-card{
+      transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+      cursor:pointer;
+    }
+
+    .compact-card.selectable-card.is-selected{
+      background: rgba(37,99,235,.08);
+      border-color: var(--primary);
+      box-shadow: inset 0 0 0 1px rgba(37,99,235,.18);
+    }
+
+.inline-action-stack{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+    }
+
+    .inline-action-stack > *{
+      flex:1 1 180px;
+      min-width:0;
+    }
+.list-stack{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
   </style>
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <div>
-        <div class="brand">FaSt-Viewer</div>
-        <div class="sub">Lokaler Viewer für FaSt-Doku-Backups. ZIP laden, Masterkey eingeben und Daten nach Therapeut und Zeitraum auslesen.</div>
-      </div>
+  <header>
+    <div class="brand">FaSt-Doku</div>
+    <div class="header-actions">
+      <button id="lockBtn" class="secondary" style="display:none;">Sperren</button>
+    </div>
+  </header>
 
-      <div class="panel">
-        <label for="backupFiles">Backup-Dateien</label>
-        <input id="backupFiles" type="file" accept=".zip" multiple>
-        <label for="masterkey">Masterkey / Praxispasswort</label>
-        <input id="masterkey" type="password" autocomplete="current-password" placeholder="Praxispasswort">
-        <button id="loadBtn">Backups laden</button>
-        <button id="clearBtn" class="secondary" type="button">Geladene Daten leeren</button>
-        <div class="spacer"></div>
-        <div id="loadMessage" class="small muted">Noch keine Backups geladen.</div>
-      </div>
+  <main id="app"></main>
 
-      <div class="panel">
-        <h3>Therapeuten</h3>
-        <div id="therapistList" class="list">
-          <div class="muted small">Nach dem Import erscheinen hier die Therapeuten.</div>
-        </div>
-      </div>
-    </aside>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch(err => {
+        console.error("Service Worker Fehler:", err);
+      });
+    }
+  </script>
 
-    <main class="main" id="mainContent">
-      <div class="card">
-        <h1>Viewer bereit</h1>
-        <p>Dieser Viewer liest FaSt-Doku-Backups lokal im Browser. Nach dem Import kannst du nach Therapeut filtern und die Bereiche <strong>Zeit</strong>, <strong>Patienten mit Dokumentation</strong> und <strong>Kilometer</strong> nach Zeitraum auswerten und drucken.</p>
-        <p class="muted">Hinweis: Falls im Backup noch keine feste Therapeuten-ID gespeichert ist, gruppiert der Viewer ersatzweise nach Therapeutenname.</p>
-      </div>
-    </main>
-  </div>
-
-  <script src="zip-full.min.js"></script>
-  <script type="module" src="app.js"></script>
+  <script src="./zip-full.min.js"></script>
+  <script type="module" src="./core/boot.js"></script>
 </body>
 </html>
