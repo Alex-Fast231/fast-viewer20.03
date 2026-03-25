@@ -164,6 +164,10 @@ function getAbsenceRows(data) {
   return Array.isArray(data?.abwesenheiten) ? data.abwesenheiten : [];
 }
 
+function getSpecialDayRows(data) {
+  return Array.isArray(data?.specialDays) ? data.specialDays : [];
+}
+
 function isComparableDateWithinAbsence(comparableDate, absence) {
   const from = parseDeDate(absence?.from);
   const to = parseDeDate(absence?.to);
@@ -173,6 +177,12 @@ function isComparableDateWithinAbsence(comparableDate, absence) {
 
 function getAbsenceForComparableDate(data, comparableDate) {
   return getAbsenceRows(data).find((item) => isComparableDateWithinAbsence(comparableDate, item)) || null;
+}
+
+function getSpecialDayForComparableDate(data, comparableDate) {
+  if (!comparableDate) return null;
+  const targetDate = formatComparableToDe(comparableDate);
+  return getSpecialDayRows(data).find((item) => item?.date === targetDate) || null;
 }
 
 function collectAllTimeEntries(data) {
@@ -227,7 +237,8 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     const workDayCode = getWorkDayCodeFromComparable(comparableDate);
     const isWorkDay = workDays.includes(workDayCode);
     const absence = isWorkDay ? getAbsenceForComparableDate(data, comparableDate) : null;
-    const plannedMinutes = isWorkDay && !absence ? dailyPlannedMinutes : 0;
+    const specialDay = isWorkDay && !absence ? getSpecialDayForComparableDate(data, comparableDate) : null;
+    const plannedMinutes = isWorkDay && !absence && !specialDay ? dailyPlannedMinutes : 0;
     const saldoMinutes = totalMinutes - plannedMinutes;
 
     return {
@@ -236,9 +247,10 @@ function getTimePeriodSummary(data, fromDate, toDate) {
       plannedMinutes,
       saldoMinutes,
       isWorkDay,
-      absenceType: absence?.type || ''
+      absenceType: absence?.type || '',
+      isHoliday: Boolean(specialDay)
     };
-  }).filter((row) => row.totalMinutes > 0 || row.plannedMinutes > 0 || row.absenceType);
+  }).filter((row) => row.totalMinutes > 0 || row.plannedMinutes > 0 || row.absenceType || row.isHoliday);
 
   const totalMinutes = dailyRows.reduce((sum, row) => sum + row.totalMinutes, 0);
   const plannedMinutes = dailyRows.reduce((sum, row) => sum + row.plannedMinutes, 0);
@@ -254,6 +266,16 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     return true;
   }).sort((a, b) => compareDeDates(a?.from, b?.from));
 
+  const specialDayRows = getSpecialDayRows(data).filter((item) => {
+    const date = parseDeDate(item?.date);
+    const filterFrom = parseDeDate(fromDate);
+    const filterTo = parseDeDate(toDate);
+    if (!date) return false;
+    if (filterFrom && date < filterFrom) return false;
+    if (filterTo && date > filterTo) return false;
+    return true;
+  }).sort((a, b) => compareDeDates(a?.date, b?.date));
+
   return {
     fromDate: String(fromDate || '').trim(),
     toDate: String(toDate || '').trim(),
@@ -261,7 +283,8 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     plannedMinutes,
     saldoMinutes,
     dailyRows,
-    absenceRows
+    absenceRows,
+    specialDayRows
   };
 }
 
@@ -1314,7 +1337,7 @@ export function showSettingsView({ onLock }) {
   };
 }
 
-export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "" } = {}) {
+export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "", showHolidayForm = false } = {}) {
   bindLockButton(onLock);
   setCurrentView("dashboard");
 
@@ -1328,11 +1351,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const hasTimeSummaryFilter = Boolean(String(timeSummaryFrom || '').trim() || String(timeSummaryTo || '').trim());
   const dashboardTodayPatients = getDashboardTodayPatients(runtimeData, todayDate);
   const absenceRows = timePeriodSummary.absenceRows;
+  const specialDayRows = timePeriodSummary.specialDayRows;
 
   render(`
     ${renderDashboardHeaderCard({ therapistName })}
 
-    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm ? 'open' : ''}>
+    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm || showHolidayForm ? 'open' : ''}>
       <summary>
         <span>Überblick</span>
         <span class="muted">Stunden</span>
@@ -1358,6 +1382,7 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <button id="runDashboardTimeSummaryBtn">Auswertung anzeigen</button>
             <button id="openUrlaubBtn" class="secondary">Urlaub</button>
             <button id="openKrankBtn" class="secondary">Krank</button>
+            <button id="openHolidayBtn" class="secondary">Feiertage</button>
           </div>
 
           <div id="dashboardAbsenceFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showAbsenceForm ? 'block' : 'none'};">
@@ -1375,6 +1400,18 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <div id="dashboardAbsenceMsg"></div>
           </div>
 
+          <div id="dashboardHolidayFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showHolidayForm ? 'block' : 'none'};">
+            <div style="font-weight:600; margin-bottom:10px;">Feiertag eintragen</div>
+            <label for="dashboardHolidayDate">Datum</label>
+            <input id="dashboardHolidayDate" type="text" placeholder="TT.MM.JJJJ" inputmode="numeric">
+
+            <div class="row">
+              <button id="saveDashboardHolidayBtn">Speichern</button>
+              <button id="cancelDashboardHolidayBtn" class="secondary">Abbrechen</button>
+            </div>
+            <div id="dashboardHolidayMsg"></div>
+          </div>
+
           <div class="compact-card" style="margin:12px 0 0 0; padding:10px;">
             <div style="font-weight:600;">Zeitsaldo</div>
             <div class="compact-meta">Geleistete Zeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.totalMinutes))}</div>
@@ -1384,16 +1421,27 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
           </div>
 
           <div class="compact-card" style="margin:12px 0 0 0; padding:10px;">
-            <div style="font-weight:600; margin-bottom:8px;">Urlaub / Krank</div>
-            ${absenceRows.length === 0 ? `<p class="muted" style="margin:0;">Noch keine Einträge vorhanden.</p>` : absenceRows.map((item) => `
-              <div class="compact-card" style="margin:0 0 8px 0; padding:10px;">
-                <div style="font-weight:600;">${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</div>
-                <div class="compact-meta">${escapeHtml(item.from || '—')} bis ${escapeHtml(item.to || '—')}</div>
-                <div class="row" style="margin-top:8px;">
-                  <button class="secondary delete-absence-btn" data-absence-id="${escapeHtml(item.id)}">Löschen</button>
+            <div style="font-weight:600; margin-bottom:8px;">Urlaub / Krank / Feiertage</div>
+            ${absenceRows.length === 0 && specialDayRows.length === 0 ? `<p class="muted" style="margin:0;">Noch keine Einträge vorhanden.</p>` : `
+              ${absenceRows.map((item) => `
+                <div class="compact-card" style="margin:0 0 8px 0; padding:10px;">
+                  <div style="font-weight:600;">${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</div>
+                  <div class="compact-meta">${escapeHtml(item.from || '—')} bis ${escapeHtml(item.to || '—')}</div>
+                  <div class="row" style="margin-top:8px;">
+                    <button class="secondary delete-absence-btn" data-absence-id="${escapeHtml(item.id)}">Löschen</button>
+                  </div>
                 </div>
-              </div>
-            `).join("")}
+              `).join("")}
+              ${specialDayRows.map((item) => `
+                <div class="compact-card" style="margin:0 0 8px 0; padding:10px;">
+                  <div style="font-weight:600;">Feiertag</div>
+                  <div class="compact-meta">${escapeHtml(item.date || '—')}</div>
+                  <div class="row" style="margin-top:8px;">
+                    <button class="secondary delete-special-day-btn" data-special-day-id="${escapeHtml(item.id)}">Löschen</button>
+                  </div>
+                </div>
+              `).join("")}
+            `}
           </div>
 
           <div style="margin-top:10px;" class="list-stack">
@@ -1403,7 +1451,7 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
                 <div class="compact-meta">Geleistet: ${escapeHtml(formatHoursClockLabel(row.totalMinutes))}</div>
                 <div class="compact-meta">Soll: ${escapeHtml(formatHoursClockLabel(row.plannedMinutes))}</div>
                 <div class="compact-meta">Saldo: ${escapeHtml(formatHoursClockLabel(Math.abs(row.saldoMinutes)))} ${row.saldoMinutes > 0 ? 'Plus' : row.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
-                ${row.absenceType ? `<div class="compact-meta">${escapeHtml(row.absenceType === 'krank' ? 'Krank' : 'Urlaub')} · neutral</div>` : ''}
+                ${row.absenceType ? `<div class="compact-meta">${escapeHtml(row.absenceType === 'krank' ? 'Krank' : 'Urlaub')} · neutral</div>` : row.isHoliday ? `<div class="compact-meta">Feiertag · neutral</div>` : ''}
               </div>
             `).join("")}
           </div>
@@ -1513,10 +1561,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const dashboardTimeSummaryTo = document.getElementById("dashboardTimeSummaryTo");
   const dashboardAbsenceFrom = document.getElementById("dashboardAbsenceFrom");
   const dashboardAbsenceTo = document.getElementById("dashboardAbsenceTo");
+  const dashboardHolidayDate = document.getElementById("dashboardHolidayDate");
   if (dashboardTimeSummaryFrom) bindDateAutoFormat(dashboardTimeSummaryFrom);
   if (dashboardTimeSummaryTo) bindDateAutoFormat(dashboardTimeSummaryTo);
   if (dashboardAbsenceFrom) bindDateAutoFormat(dashboardAbsenceFrom);
   if (dashboardAbsenceTo) bindDateAutoFormat(dashboardAbsenceTo);
+  if (dashboardHolidayDate) bindDateAutoFormat(dashboardHolidayDate);
 
   const toggleDashboardTimeOverviewBtn = document.getElementById("toggleDashboardTimeOverviewBtn");
   if (toggleDashboardTimeOverviewBtn) {
@@ -1554,12 +1604,30 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
     };
   }
 
+  const openHolidayBtn = document.getElementById("openHolidayBtn");
+  if (openHolidayBtn) {
+    openHolidayBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showHolidayForm: true });
+    };
+  }
+
   const cancelDashboardAbsenceBtn = document.getElementById("cancelDashboardAbsenceBtn");
   if (cancelDashboardAbsenceBtn) {
     cancelDashboardAbsenceBtn.onclick = () => {
       const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
       const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
       showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showAbsenceForm: "" });
+    };
+  }
+
+  const cancelDashboardHolidayBtn = document.getElementById("cancelDashboardHolidayBtn");
+  if (cancelDashboardHolidayBtn) {
+    cancelDashboardHolidayBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showHolidayForm: false });
     };
   }
 
@@ -1605,6 +1673,52 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
     };
   }
 
+
+  const saveDashboardHolidayBtn = document.getElementById("saveDashboardHolidayBtn");
+  if (saveDashboardHolidayBtn) {
+    saveDashboardHolidayBtn.onclick = async () => {
+      const msg = document.getElementById("dashboardHolidayMsg");
+      const dateValue = document.getElementById("dashboardHolidayDate").value.trim();
+      const normalizedDate = parseDeDate(dateValue);
+      msg.className = "error";
+      msg.textContent = "";
+
+      if (!normalizedDate) {
+        msg.textContent = "Bitte ein gültiges Datum eingeben.";
+        return;
+      }
+
+      try {
+        mutateRuntimeData((data) => {
+          if (!Array.isArray(data.specialDays)) data.specialDays = [];
+          const existingIndex = data.specialDays.findIndex((item) => item?.date === dateValue);
+          const nowIso = new Date().toISOString();
+          const nextItem = {
+            id: existingIndex >= 0 && data.specialDays[existingIndex]?.id
+              ? data.specialDays[existingIndex].id
+              : `specialday_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+            type: "holiday",
+            date: dateValue,
+            createdAt: existingIndex >= 0 && data.specialDays[existingIndex]?.createdAt
+              ? data.specialDays[existingIndex].createdAt
+              : nowIso,
+            updatedAt: nowIso
+          };
+          if (existingIndex >= 0) {
+            data.specialDays[existingIndex] = nextItem;
+          } else {
+            data.specialDays.push(nextItem);
+          }
+        });
+        await queuePersistRuntimeData();
+        showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true, showHolidayForm: false });
+      } catch (err) {
+        console.error(err);
+        msg.textContent = err?.message || "Feiertag konnte nicht gespeichert werden.";
+      }
+    };
+  }
+
   document.querySelectorAll('.delete-absence-btn').forEach((button) => {
     button.onclick = async () => {
       const absenceId = button.dataset.absenceId || '';
@@ -1615,6 +1729,19 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
       });
       await queuePersistRuntimeData();
       showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true, showAbsenceForm: "" });
+    };
+  });
+
+  document.querySelectorAll('.delete-special-day-btn').forEach((button) => {
+    button.onclick = async () => {
+      const specialDayId = button.dataset.specialDayId || '';
+      if (!specialDayId) return;
+      if (!confirm('Diesen Feiertag wirklich löschen?')) return;
+      mutateRuntimeData((data) => {
+        data.specialDays = (data.specialDays || []).filter((item) => item.id !== specialDayId);
+      });
+      await queuePersistRuntimeData();
+      showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true, showHolidayForm: false });
     };
   });
 

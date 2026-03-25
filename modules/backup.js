@@ -280,6 +280,17 @@ function normalizeAbsenceForMigration(item) {
   };
 }
 
+function normalizeSpecialDayForMigration(item) {
+  const source = clonePlainObject(item);
+  return {
+    ...source,
+    id: ensureStringValue(source.id) || generateMigrationId("specialday"),
+    type: "holiday",
+    date: normalizeLegacyDateValue(source.date || source.datum)
+  };
+}
+
+
 function integrateLegacyFlatCollections(result) {
   const homes = ensureArrayValue(result.homes);
   const legacyPatients = ensureArrayValue(result.patients).map(normalizePatientForMigration);
@@ -384,7 +395,8 @@ export function migrateBackupData(data, fromVersion) {
     verordnungen: ensureArrayValue(source.verordnungen).map(normalizeRezeptForMigration),
     zeit: isPlainObject(source.zeit) ? { ...source.zeit } : { timeEntries: [] },
     kilometer: isPlainObject(source.kilometer) ? { ...source.kilometer } : { entries: [] },
-    abwesenheiten: ensureArrayValue(source.abwesenheiten).map(normalizeAbsenceForMigration)
+    abwesenheiten: ensureArrayValue(source.abwesenheiten).map(normalizeAbsenceForMigration),
+    specialDays: ensureArrayValue(source.specialDays).map(normalizeSpecialDayForMigration)
   };
 
   result.zeit.timeEntries = ensureArrayValue(result.zeit.timeEntries).map(normalizeTimeEntryForMigration);
@@ -440,6 +452,7 @@ export function buildBackupMeta(runtimeData) {
     workDays: Array.isArray(normalized.settings?.workDays) ? normalized.settings.workDays : [],
     weeklyHours: normalized.settings?.weeklyHours || "",
     absenceCount: Array.isArray(normalized.abwesenheiten) ? normalized.abwesenheiten.length : 0,
+    specialDayCount: Array.isArray(normalized.specialDays) ? normalized.specialDays.length : 0,
     counts
   };
 }

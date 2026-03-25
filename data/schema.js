@@ -54,6 +54,7 @@ export function createEmptyAppData() {
     },
 
     abwesenheiten: [],
+    specialDays: [],
 
     abgabeHistory: [],
     nachbestellHistory: [],

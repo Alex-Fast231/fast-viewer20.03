@@ -260,6 +260,20 @@ function normalizeAbwesenheiten(items) {
   });
 }
 
+function normalizeSpecialDays(items) {
+  return ensureArray(items).map((item) => {
+    const source = item && typeof item === "object" ? item : {};
+    return {
+      id: ensureString(source.id) || generateId("specialday"),
+      type: "holiday",
+      date: ensureDeDateString(source.date || source.datum),
+      createdAt: ensureIsoString(source.createdAt, new Date().toISOString()),
+      updatedAt: ensureIsoString(source.updatedAt, new Date().toISOString())
+    };
+  }).filter((item) => item.date);
+}
+
+
 function normalizeNachbestellHistory(items) {
   return ensureArray(items).map((item) => {
     const source = item && typeof item === "object" ? item : {};
@@ -329,6 +343,7 @@ export function finalizeAppStructure(data) {
     kilometer: normalizeKilometerState(source.kilometer),
 
     abwesenheiten: normalizeAbwesenheiten(source.abwesenheiten),
+    specialDays: normalizeSpecialDays(source.specialDays),
 
     abgabeHistory: normalizeAbgabeHistory(source.abgabeHistory),
     nachbestellHistory: normalizeNachbestellHistory(source.nachbestellHistory),
