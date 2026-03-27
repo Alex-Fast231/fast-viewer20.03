@@ -983,6 +983,32 @@ export function saveNachbestellHistorySnapshot(snapshot) {
   });
 }
 
+
+export function markNachbestellRowsAsAbgegeben(rows) {
+  const selected = Array.isArray(rows) ? rows : [];
+  if (selected.length === 0) return;
+
+  const targets = new Set(
+    selected
+      .map((row) => String(row?.rezeptId || '').trim())
+      .filter(Boolean)
+  );
+
+  if (targets.size === 0) return;
+
+  mutateRuntimeData((data) => {
+    (data.homes || []).forEach((home) => {
+      (home.patients || []).forEach((patient) => {
+        (patient.rezepte || []).forEach((rezept) => {
+          if (targets.has(String(rezept.rezeptId || '').trim())) {
+            rezept.status = 'Abgegeben';
+          }
+        });
+      });
+    });
+  });
+}
+
 export function deleteNachbestellHistoryItem(historyId) {
   const targetId = String(historyId || '').trim();
   if (!targetId) return;
