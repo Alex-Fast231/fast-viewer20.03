@@ -195,14 +195,21 @@ function normalizeAbgabeHistory(items) {
       id: ensureString(source.id) || generateId("abgabe"),
       createdAt: ensureIsoString(source.createdAt),
       title: ensureString(source.title),
+      snapshotHtml: ensureString(source.snapshotHtml),
       rows: ensureArray(source.rows).map((row) => ({
         heim: ensureString(row?.heim),
         patient: ensureString(row?.patient),
+        patientFirstName: ensureString(row?.patientFirstName),
+        patientLastName: ensureString(row?.patientLastName),
         geb: ensureDeDateString(row?.geb),
         ausstell: ensureDeDateString(row?.ausstell),
         leistung: ensureString(row?.leistung),
         anzahl: ensureString(row?.anzahl),
-        menge: ensureString(row?.menge)
+        menge: ensureString(row?.menge),
+        arzt: ensureString(row?.arzt || row?.doctor),
+        befreit: ensureBoolean(row?.befreit, false),
+        bg: ensureBoolean(row?.bg, false),
+        dt: ensureBoolean(row?.dt, false)
       }))
     };
   });
