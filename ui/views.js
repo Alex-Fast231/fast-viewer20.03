@@ -42,6 +42,7 @@ import {
   saveNachbestellHistorySnapshot,
   deleteNachbestellHistoryItem,
   buildNachbestellLetterData,
+  markNachbestellRowsAsAbgegeben,
   buildAbgabeTree,
   buildNachbestellTree,
   createRezeptTimeEntry,
@@ -3583,6 +3584,7 @@ export function showNachbestellungView({ onLock, doctorFilter = "", textFilter =
         snapshotHtml: bodyHtml,
         lines
       });
+      markNachbestellRowsAsAbgegeben(getChosenRows());
       await queuePersistRuntimeData();
       openLetterPreview(letterData.title, bodyHtml);
       showNachbestellungView({
