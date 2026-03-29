@@ -1,5 +1,5 @@
 import { createEmptyAppData } from "../data/schema.js";
-import { setupSecurity, unlockWithPIN, updateSecurityCredentials } from "../security/auth.js";
+import { setupSecurity, unlockWithPIN } from "../security/auth.js";
 import { getRemainingLockoutMs } from "../security/lock.js";
 import {
   getCryptoMeta,
@@ -42,7 +42,6 @@ import {
   saveNachbestellHistorySnapshot,
   deleteNachbestellHistoryItem,
   buildNachbestellLetterData,
-  markNachbestellRowsAsAbgegeben,
   buildAbgabeTree,
   buildNachbestellTree,
   createRezeptTimeEntry,
@@ -98,13 +97,6 @@ function sortRezepteForDisplay(rezepte) {
   return [...(rezepte || [])].sort((a, b) => compareDeDates(b?.ausstell, a?.ausstell));
 }
 
-function getStatusPillClass(status) {
-  if (status === "Abgegeben") return "pill-gray";
-  if (status === "Abgeschlossen") return "pill-blue";
-  if (status === "Pausiert") return "pill-orange";
-  return "pill-green";
-}
-
 function renderRezeptMarkerLine(rezept, frist) {
   const blanko = (rezept.items || []).some((i) => i.type === "Blanko");
 
@@ -117,7 +109,6 @@ function renderRezeptMarkerLine(rezept, frist) {
 
   return `
     <div style="margin-bottom:8px;">
-      <span class="${getStatusPillClass(rezept.status || "Aktiv")}">${escapeHtml(rezept.status || "Aktiv")}</span>
       ${rezept.bg ? `<span class="pill">BG</span>` : ""}
       ${rezept.dt ? `<span class="pill">DT</span>` : ""}
       ${blanko ? `<span class="pill">Blanko</span>` : ""}
@@ -288,6 +279,110 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     specialDayRows
   };
 }
+
+
+function getTimeOverviewStatusLabel(row) {
+  if (row?.absenceType === 'krank') return 'Krank';
+  if (row?.absenceType === 'urlaub') return 'Urlaub';
+  if (row?.isHoliday) return 'Feiertag';
+  return 'Arbeit';
+}
+
+function buildTimeOverviewPrintMarkup({ therapistName, summary }) {
+  const absenceMarkup = summary.absenceRows.length === 0
+    ? '<p>Keine Urlaubs- oder Krankheitseinträge im Zeitraum.</p>'
+    : `<table><thead><tr><th>Status</th><th>Von</th><th>Bis</th></tr></thead><tbody>${summary.absenceRows.map((item) => `
+      <tr>
+        <td>${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</td>
+        <td>${escapeHtml(item.from || '—')}</td>
+        <td>${escapeHtml(item.to || '—')}</td>
+      </tr>
+    `).join('')}</tbody></table>`;
+
+  const holidayMarkup = summary.specialDayRows.length === 0
+    ? '<p>Keine Feiertage im Zeitraum.</p>'
+    : `<table><thead><tr><th>Feiertag</th></tr></thead><tbody>${summary.specialDayRows.map((item) => `
+      <tr><td>${escapeHtml(item.date || '—')}</td></tr>
+    `).join('')}</tbody></table>`;
+
+  const dailyMarkup = summary.dailyRows.length === 0
+    ? '<p>Keine Zeiten im gewählten Zeitraum.</p>'
+    : `<table><thead><tr><th>Datum</th><th>Status</th><th>Geleistete Zeit</th><th>Soll-Zeit</th><th>Tages-Saldo</th></tr></thead><tbody>${summary.dailyRows.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.date || '—')}</td>
+        <td>${escapeHtml(getTimeOverviewStatusLabel(row))}</td>
+        <td>${escapeHtml(formatHoursClockLabel(row.totalMinutes))}</td>
+        <td>${escapeHtml(formatHoursClockLabel(row.plannedMinutes))}</td>
+        <td>${escapeHtml(formatHoursClockLabel(Math.abs(row.saldoMinutes)))} ${row.saldoMinutes > 0 ? 'Plus' : row.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td>
+      </tr>
+    `).join('')}</tbody></table>`;
+
+  return `
+    <div class="print-section">
+      <div><strong>Therapeut:</strong> ${escapeHtml(therapistName || '—')}</div>
+      <div><strong>Zeitraum:</strong> ${escapeHtml(summary.fromDate || '—')} bis ${escapeHtml(summary.toDate || '—')}</div>
+    </div>
+
+    <div class="print-section">
+      <h3>Gesamt</h3>
+      <table>
+        <tbody>
+          <tr><th>Soll-Zeit</th><td>${escapeHtml(formatHoursClockLabel(summary.plannedMinutes))}</td></tr>
+          <tr><th>Ist-Zeit</th><td>${escapeHtml(formatHoursClockLabel(summary.totalMinutes))}</td></tr>
+          <tr><th>Saldo</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.saldoMinutes)))} ${summary.saldoMinutes > 0 ? 'Plus' : summary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="print-section">
+      <h3>Tagesliste</h3>
+      ${dailyMarkup}
+    </div>
+
+    <div class="print-section">
+      <h3>Urlaub / Krank</h3>
+      ${absenceMarkup}
+    </div>
+
+    <div class="print-section">
+      <h3>Feiertage</h3>
+      ${holidayMarkup}
+    </div>
+  `;
+}
+
+function printTimeOverview() {
+  const contentNode = document.getElementById('zeituebersicht-content');
+  if (!contentNode) return;
+  const content = contentNode.innerHTML;
+  const win = window.open('', '', 'width=1000,height=800');
+  if (!win) return;
+
+  win.document.write(`<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Zeitübersicht</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #111827; }
+        h2 { margin: 0 0 18px 0; }
+        h3 { margin: 0 0 10px 0; font-size: 18px; }
+        .print-section { margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
+        th { background: #f3f4f6; }
+      </style>
+    </head>
+    <body>
+      <h2>Zeitübersicht</h2>
+      ${content}
+    </body>
+  </html>`);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+window.printTimeOverview = printTimeOverview;
 
 function getDashboardTodayPatients(data, targetDate = formatCurrentDateShort()) {
   const normalizedDate = String(targetDate || '').trim();
@@ -1007,7 +1102,7 @@ export function showSetupView({ onSuccess }) {
   render(`
     <div class="card">
       <h2>Ersteinrichtung</h2>
-      <p class="muted">FaSt-Doku wird jetzt mit Praxispasswort und Workflow-PIN abgesichert.</p>
+      <p class="muted">FaSt-Doku wird jetzt mit Praxispasswort und PIN abgesichert.</p>
 
       <label for="therapistName">Therapeutenname</label>
       <input id="therapistName" type="text" autocomplete="off">
@@ -1031,10 +1126,10 @@ export function showSetupView({ onSuccess }) {
       <label for="practicePassword">Praxispasswort</label>
       <input id="practicePassword" type="password" autocomplete="new-password">
 
-      <label for="workflowPin">Workflow-PIN (mindestens 6 Zeichen)</label>
+      <label for="workflowPin">PIN (mindestens 6 Zeichen)</label>
       <input id="workflowPin" type="password" inputmode="numeric" autocomplete="new-password">
 
-      <label for="workflowPinRepeat">Workflow-PIN wiederholen</label>
+      <label for="workflowPinRepeat">PIN wiederholen</label>
       <input id="workflowPinRepeat" type="password" inputmode="numeric" autocomplete="new-password">
 
       <button id="saveSetupBtn">Einrichtung abschließen</button>
@@ -1090,12 +1185,12 @@ export function showSetupView({ onSuccess }) {
     }
 
     if (!pin || pin.length < 6) {
-      msg.textContent = "Die Workflow-PIN muss mindestens 6 Zeichen haben.";
+      msg.textContent = "Die PIN muss mindestens 6 Zeichen haben.";
       return;
     }
 
     if (pin !== pinRepeat) {
-      msg.textContent = "Die Workflow-PIN stimmt nicht überein.";
+      msg.textContent = "Die PIN stimmt nicht überein.";
       return;
     }
 
@@ -1138,10 +1233,10 @@ export function showLoginView({ onSuccess }) {
 
   render(`
     <div class="card">
-      <h2>Workflow-PIN Login</h2>
+      <h2>PIN Login</h2>
       <p class="muted">Bitte PIN eingeben, um FaSt-Doku zu entsperren.</p>
 
-      <label for="loginPin">Workflow-PIN</label>
+      <label for="loginPin">PIN</label>
       <input id="loginPin" type="password" inputmode="numeric" autocomplete="current-password">
 
       <button id="loginBtn">Entsperren</button>
@@ -1257,14 +1352,6 @@ export function showSettingsView({ onLock }) {
       <label for="settingsWeeklyHours">Arbeitsstunden pro Woche</label>
       <input id="settingsWeeklyHours" type="text" inputmode="decimal" autocomplete="off" value="${escapeHtml(settings.weeklyHours || "")}" placeholder="z. B. 20 oder 38.5">
 
-      <div class="muted" style="margin:12px 0 16px 0;">Das Praxispasswort ist als Master-Key fest hinterlegt und kann in der App nicht geändert werden.</div>
-
-      <label for="settingsWorkflowPin">Neue Workflow-PIN</label>
-      <input id="settingsWorkflowPin" type="password" inputmode="numeric" autocomplete="new-password" placeholder="leer lassen = unverändert">
-
-      <label for="settingsWorkflowPinRepeat">Neue Workflow-PIN wiederholen</label>
-      <input id="settingsWorkflowPinRepeat" type="password" inputmode="numeric" autocomplete="new-password" placeholder="leer lassen = unverändert">
-
       <button id="saveSettingsBtn">Änderungen speichern</button>
       <div id="settingsMessage"></div>
     </div>
@@ -1283,8 +1370,6 @@ export function showSettingsView({ onLock }) {
     const therapistFax = document.getElementById("settingsTherapistFax").value.trim();
     const workDays = WORK_DAY_OPTIONS.filter((day) => document.getElementById(`settingsWorkDay-${day}`)?.checked);
     const weeklyHours = normalizeWeeklyHoursInput(document.getElementById("settingsWeeklyHours").value);
-    const newPin = document.getElementById("settingsWorkflowPin").value;
-    const newPinRepeat = document.getElementById("settingsWorkflowPinRepeat").value;
     const msg = document.getElementById("settingsMessage");
 
     msg.className = "error";
@@ -1292,16 +1377,6 @@ export function showSettingsView({ onLock }) {
 
     if (!isValidWeeklyHours(weeklyHours)) {
       msg.textContent = "Die Arbeitsstunden pro Woche müssen als Zahl eingegeben werden, z. B. 20 oder 38.5.";
-      return;
-    }
-
-    if ((newPin || newPinRepeat) && newPin !== newPinRepeat) {
-      msg.textContent = "Die neue Workflow-PIN stimmt nicht überein.";
-      return;
-    }
-
-    if (newPin && newPin.length < 6) {
-      msg.textContent = "Die Workflow-PIN muss mindestens 6 Zeichen haben.";
       return;
     }
 
@@ -1316,20 +1391,9 @@ export function showSettingsView({ onLock }) {
         data.settings.updatedAt = new Date().toISOString();
       });
 
-      if (newPin) {
-        const nextCryptoMeta = await updateSecurityCredentials({
-          runtimeKey: getRuntimeKey(),
-          currentCryptoMeta: getCryptoMeta(),
-          pin: newPin
-        });
-        setCryptoMeta(nextCryptoMeta);
-      }
-
       await queuePersistRuntimeData();
       msg.className = "success";
       msg.textContent = "Einstellungen gespeichert.";
-      document.getElementById("settingsWorkflowPin").value = "";
-      document.getElementById("settingsWorkflowPinRepeat").value = "";
     } catch (err) {
       console.error(err);
       msg.className = "error";
@@ -1386,6 +1450,7 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
           </div>
           <div class="row">
             <button id="runDashboardTimeSummaryBtn">Auswertung anzeigen</button>
+            <button id="printTimeOverviewBtn" class="secondary">Drucken</button>
           </div>
 
           <div id="dashboardAbsenceFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showAbsenceForm ? 'block' : 'none'};">
@@ -1415,46 +1480,19 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <div id="dashboardHolidayMsg"></div>
           </div>
 
-          <div class="compact-card" style="margin:12px 0 0 0; padding:10px;">
-            <div style="font-weight:600;">Zeitsaldo</div>
-            <div class="compact-meta">Geleistete Zeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.totalMinutes))}</div>
-            <div class="compact-meta">Sollzeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.plannedMinutes))}</div>
-            <div class="compact-meta">Saldo: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.saldoMinutes)))} ${timePeriodSummary.saldoMinutes > 0 ? 'Plus' : timePeriodSummary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
-            <div class="compact-meta">Zeitraum: ${escapeHtml(timePeriodSummary.fromDate || '—')} bis ${escapeHtml(timePeriodSummary.toDate || '—')}</div>
-          </div>
-
-          <div class="compact-card" style="margin:12px 0 0 0; padding:10px;">
-            <div style="font-weight:600; margin-bottom:8px;">Urlaub / Krank / Feiertage</div>
-            ${absenceRows.length === 0 && specialDayRows.length === 0 ? `<p class="muted" style="margin:0;">Noch keine Einträge vorhanden.</p>` : `
-              ${absenceRows.map((item) => `
-                <div class="compact-card" style="margin:0 0 8px 0; padding:10px;">
-                  <div style="font-weight:600;">${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</div>
-                  <div class="compact-meta">${escapeHtml(item.from || '—')} bis ${escapeHtml(item.to || '—')}</div>
-                  <div class="row" style="margin-top:8px;">
-                    <button class="secondary delete-absence-btn" data-absence-id="${escapeHtml(item.id)}">Löschen</button>
-                  </div>
-                </div>
-              `).join("")}
-              ${specialDayRows.map((item) => `
-                <div class="compact-card" style="margin:0 0 8px 0; padding:10px;">
-                  <div style="font-weight:600;">Feiertag</div>
-                  <div class="compact-meta">${escapeHtml(item.date || '—')}</div>
-                  <div class="row" style="margin-top:8px;">
-                    <button class="secondary delete-special-day-btn" data-special-day-id="${escapeHtml(item.id)}">Löschen</button>
-                  </div>
-                </div>
-              `).join("")}
-            `}
+          <div id="zeituebersicht-content" style="margin-top:12px;">
+            ${buildTimeOverviewPrintMarkup({ therapistName, summary: timePeriodSummary })}
           </div>
 
           <div style="margin-top:10px;" class="list-stack">
             ${timePeriodSummary.dailyRows.length === 0 ? `<p class="muted">Keine Zeiten im gewählten Zeitraum.</p>` : timePeriodSummary.dailyRows.map((row) => `
               <div class="compact-card" style="margin:0; padding:10px;">
                 <div style="font-weight:600;">${escapeHtml(row.date || 'Ohne Datum')}</div>
+                <div class="compact-meta">Status: ${escapeHtml(getTimeOverviewStatusLabel(row))}</div>
                 <div class="compact-meta">Geleistet: ${escapeHtml(formatHoursClockLabel(row.totalMinutes))}</div>
                 <div class="compact-meta">Soll: ${escapeHtml(formatHoursClockLabel(row.plannedMinutes))}</div>
                 <div class="compact-meta">Saldo: ${escapeHtml(formatHoursClockLabel(Math.abs(row.saldoMinutes)))} ${row.saldoMinutes > 0 ? 'Plus' : row.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
-                ${row.absenceType ? `<div class="compact-meta">${escapeHtml(row.absenceType === 'krank' ? 'Krank' : 'Urlaub')} · neutral</div>` : row.isHoliday ? `<div class="compact-meta">Feiertag · neutral</div>` : ''}
+                ${row.absenceType ? `<div class="compact-meta">${escapeHtml(row.absenceType === 'krank' ? 'Krank' : 'Urlaub')} · neutral</div>` : row.isHoliday ? `<div class="compact-meta">Feiertag · neutral</div>` : row.isWorkDay ? `<div class="compact-meta">Arbeitstag</div>` : ''}
               </div>
             `).join("")}
           </div>
@@ -1586,6 +1624,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
       const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
       const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
       showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true });
+    };
+  }
+  const printTimeOverviewBtn = document.getElementById("printTimeOverviewBtn");
+  if (printTimeOverviewBtn) {
+    printTimeOverviewBtn.onclick = () => {
+      printTimeOverview();
     };
   }
 
@@ -2914,7 +2958,6 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
         <p><strong>Leistungen:</strong> ${escapeHtml(rezeptSummary(rezept))}</p>
         <p><strong>Arzt:</strong> ${escapeHtml(rezept.arzt || "—")}</p>
         <p><strong>Ausstellungsdatum:</strong> ${escapeHtml(rezept.ausstell || "—")}</p>
-        <p><strong>Status:</strong> ${escapeHtml(rezept.status || "Aktiv")}</p>
         <p><strong>BG:</strong> ${rezept.bg ? "Ja" : "Nein"}</p>
         <p><strong>Doppeltermin:</strong> ${rezept.dt ? "Ja" : "Nein"}</p>
         <p><strong>Zeit gesamt:</strong> ${escapeHtml(formatMinutesLabel(timeSummary.totalMinutes))}</p>
@@ -3429,7 +3472,7 @@ export function showNachbestellungView({ onLock, doctorFilter = "", textFilter =
         </datalist>
 
         <label for="nachbestellTextFilter">Zusätzliche Suche</label>
-        <input id="nachbestellTextFilter" type="text" value="${escapeHtml(textFilter)}" placeholder="Patient, Heim, Status, Text">
+        <input id="nachbestellTextFilter" type="text" value="${escapeHtml(textFilter)}" placeholder="Patient, Heim, Text">
 
         <div class="row">
           <button id="runDoctorFilterBtn" class="secondary">Filtern</button>
@@ -3584,7 +3627,6 @@ export function showNachbestellungView({ onLock, doctorFilter = "", textFilter =
         snapshotHtml: bodyHtml,
         lines
       });
-      markNachbestellRowsAsAbgegeben(getChosenRows());
       await queuePersistRuntimeData();
       openLetterPreview(letterData.title, bodyHtml);
       showNachbestellungView({

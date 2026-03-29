@@ -2,17 +2,6 @@ import { getRuntimeData, mutateRuntimeData } from "../core/app-core.js";
 import { compareDeDates, isDateInRange } from "../core/date-utils.js";
 import { generateId, getRezeptAusstellungsdatum } from "../core/utils.js";
 
-export const REZEPT_STATUS_OPTIONS = [
-  "Aktiv",
-  "Pausiert",
-  "Abgeschlossen",
-  "Abgegeben"
-];
-
-function normalizeStatus(status) {
-  const value = String(status || "").trim();
-  return REZEPT_STATUS_OPTIONS.includes(value) ? value : "Aktiv";
-}
 function normalizeTimeType(type) {
   return ["behandlung", "dokumentation", "besprechung", "manuell"].includes(String(type || "").trim())
     ? String(type || "").trim()
@@ -569,7 +558,6 @@ export function createRezept(homeId, patientId, payload) {
       rezeptId: generateId("rezept"),
       arzt: (payload.arzt || "").trim(),
       ausstell: (payload.ausstell || "").trim(),
-      status: normalizeStatus(payload.status),
       bg: !!payload.bg,
       dt: !!payload.dt,
       items,
@@ -611,7 +599,6 @@ export function updateRezept(homeId, patientId, rezeptId, payload) {
 
     rezept.arzt = (payload.arzt || "").trim();
     rezept.ausstell = (payload.ausstell || "").trim();
-    rezept.status = normalizeStatus(payload.status);
     rezept.bg = !!payload.bg;
     rezept.dt = !!payload.dt;
     rezept.items = items;
@@ -823,7 +810,6 @@ export function buildAbgabeRows(data) {
           leistung: buildAbgabeLeistungText(rezept),
           anzahl: "",
           menge: "",
-          status: rezept.status || "",
           arzt: rezept.arzt || rezept.doctor || "",
           befreit: !!patient.befreit,
           bg: !!rezept.bg,
@@ -859,7 +845,6 @@ export function filterAbgabeRows(rows, query) {
       row.ausstell,
       row.leistung,
       row.anzahl,
-      row.status,
       row.arzt
     ].join(" ").toLowerCase();
 
@@ -984,31 +969,6 @@ export function saveNachbestellHistorySnapshot(snapshot) {
 }
 
 
-export function markNachbestellRowsAsAbgegeben(rows) {
-  const selected = Array.isArray(rows) ? rows : [];
-  if (selected.length === 0) return;
-
-  const targets = new Set(
-    selected
-      .map((row) => String(row?.rezeptId || '').trim())
-      .filter(Boolean)
-  );
-
-  if (targets.size === 0) return;
-
-  mutateRuntimeData((data) => {
-    (data.homes || []).forEach((home) => {
-      (home.patients || []).forEach((patient) => {
-        (patient.rezepte || []).forEach((rezept) => {
-          if (targets.has(String(rezept.rezeptId || '').trim())) {
-            rezept.status = 'Abgegeben';
-          }
-        });
-      });
-    });
-  });
-}
-
 export function deleteNachbestellHistoryItem(historyId) {
   const targetId = String(historyId || '').trim();
   if (!targetId) return;
@@ -1031,7 +991,6 @@ export function buildNachbestellRows(data) {
           heim: home.name || "",
           text: rezeptSummary(rezept),
           ausstell: getRezeptAusstellungsdatum(rezept),
-          status: rezept.status || "",
           rezeptId: rezept.rezeptId,
           patientId: patient.patientId,
           homeId: home.homeId
@@ -1054,8 +1013,7 @@ export function filterNachbestellRows(rows, doctorQuery, textQuery = "") {
       row.patient,
       row.geb,
       row.heim,
-      row.text,
-      row.status
+      row.text
     ].join(" ").toLowerCase().includes(tq);
 
     return doctorOk && textOk;
@@ -1142,7 +1100,6 @@ export function buildAbgabeTree(data) {
         rezepte.push({
           rowId: `${home.homeId}_${patient.patientId}_${rezept.rezeptId}`,
           rezeptId: rezept.rezeptId,
-          status: rezept.status || "",
           arzt: rezept.arzt || rezept.doctor || "",
           ausstell: rezept.ausstell || "",
           bg: !!rezept.bg,

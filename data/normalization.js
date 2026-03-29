@@ -102,16 +102,10 @@ function normalizeRezept(rezept) {
     }
   }
 
-  const statusValue = ensureString(source.status, "Aktiv") || "Aktiv";
-const allowedStatus = ["Aktiv", "Pausiert", "Abgeschlossen", "Abgegeben"].includes(statusValue)
-  ? statusValue
-  : "Aktiv";
-
 return {
   rezeptId: ensureString(source.rezeptId || source.id) || generateId("rezept"),
   arzt: ensureString(source.arzt || source.doctor),
   ausstell: getNormalizedRezeptAusstellungsdatum(source),
-  status: allowedStatus,
   bg: ensureBoolean(source.bg, false),
   dt: ensureBoolean(source.dt, false),
   items,
