@@ -737,7 +737,7 @@ function openHtmlDocument(title, bodyHtml, { autoPrint = false } = {}) {
         body{
           font-family: Arial, sans-serif;
           padding: 24px;
-          color:#111827;
+          color:#1f2a24;
           line-height: 1.45;
         }
         h1{
@@ -749,7 +749,7 @@ function openHtmlDocument(title, bodyHtml, { autoPrint = false } = {}) {
           padding:10px 0;
         }
         .muted{
-          color:#6b7280;
+          color:#5f6f66;
           font-size:12px;
         }
         .print-actions{
@@ -763,12 +763,12 @@ function openHtmlDocument(title, bodyHtml, { autoPrint = false } = {}) {
           border-radius:8px;
           padding:10px 14px;
           cursor:pointer;
-          background:#2563eb;
+          background:#4caf7a;
           color:white;
           font-weight:600;
         }
         button.secondary{
-          background:#e5e7eb;
+          background:#e1ece6;
           color:#111827;
         }
         @media print{
