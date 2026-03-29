@@ -1480,8 +1480,37 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <div id="dashboardHolidayMsg"></div>
           </div>
 
-          <div id="zeituebersicht-content" style="margin-top:12px;">
+          <div id="zeituebersicht-content" style="display:none;">
             ${buildTimeOverviewPrintMarkup({ therapistName, summary: timePeriodSummary })}
+          </div>
+
+          <div class="compact-card" style="margin-top:12px; padding:12px;">
+            <div style="font-size:18px; font-weight:700; margin-bottom:6px;">Zeitsaldo</div>
+            <div class="compact-meta">Geleistete Zeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.totalMinutes))}</div>
+            <div class="compact-meta">Sollzeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.plannedMinutes))}</div>
+            <div class="compact-meta">Saldo: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.saldoMinutes)))} ${timePeriodSummary.saldoMinutes > 0 ? 'Plus' : timePeriodSummary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
+            <div class="compact-meta">Zeitraum: ${escapeHtml(timePeriodSummary.fromDate || '—')} bis ${escapeHtml(timePeriodSummary.toDate || '—')}</div>
+          </div>
+
+          <div class="compact-card" style="margin-top:12px; padding:12px;">
+            <div style="font-size:18px; font-weight:700; margin-bottom:12px;">Urlaub / Krank / Feiertage</div>
+            <div class="list-stack">
+              ${absenceRows.length === 0 && specialDayRows.length === 0 ? `<p class="muted" style="margin:0;">Keine Einträge im gewählten Zeitraum.</p>` : ''}
+              ${absenceRows.map((item) => `
+                <div class="compact-card" style="margin:0; padding:12px;">
+                  <div style="font-weight:700; font-size:16px; margin-bottom:4px;">${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</div>
+                  <div class="compact-meta">${escapeHtml(item.from || '—')} bis ${escapeHtml(item.to || '—')}</div>
+                  <button class="delete-absence-btn secondary" data-absence-id="${escapeHtml(item.id || '')}" style="margin-top:12px; width:100%;">Löschen</button>
+                </div>
+              `).join('')}
+              ${specialDayRows.map((item) => `
+                <div class="compact-card" style="margin:0; padding:12px;">
+                  <div style="font-weight:700; font-size:16px; margin-bottom:4px;">Feiertag</div>
+                  <div class="compact-meta">${escapeHtml(item.date || '—')}</div>
+                  <button class="delete-special-day-btn secondary" data-special-day-id="${escapeHtml(item.id || '')}" style="margin-top:12px; width:100%;">Löschen</button>
+                </div>
+              `).join('')}
+            </div>
           </div>
 
           <div style="margin-top:10px;" class="list-stack">
