@@ -862,6 +862,16 @@ export function searchPatientsInHome(home, query) {
   });
 }
 
+function comparePatientsByLastName(a, b) {
+  const last = String(a?.patientLastName || "").localeCompare(String(b?.patientLastName || ""), "de");
+  if (last !== 0) return last;
+  const first = String(a?.patientFirstName || "").localeCompare(String(b?.patientFirstName || ""), "de");
+  if (first !== 0) return first;
+  const displayA = String(a?.patient || a?.patientName || "");
+  const displayB = String(b?.patient || b?.patientName || "");
+  return displayA.localeCompare(displayB, "de");
+}
+
 function buildAbgabeLeistungText(rezept) {
   const parts = (rezept?.items || []).map((item) => {
     if (!item) return "";
@@ -1001,7 +1011,7 @@ export function buildNachbestellLetterData(data, rows) {
           ...patient,
           rezepte: patient.rezepte.sort((a, b) => String(a.text || '').localeCompare(String(b.text || ''), 'de'))
         }))
-        .sort((a, b) => String(a.patientName || '').localeCompare(String(b.patientName || ''), 'de'))
+        .sort(comparePatientsByLastName)
     }))
     .sort((a, b) => {
       if (a.type !== b.type) return a.type === 'heim' ? -1 : 1;
@@ -1080,7 +1090,13 @@ export function buildNachbestellRows(data) {
     });
   });
 
-  return rows;
+  return rows.sort((a, b) => {
+    const patientCompare = comparePatientsByLastName(a, b);
+    if (patientCompare !== 0) return patientCompare;
+    const homeCompare = String(a.heim || "").localeCompare(String(b.heim || ""), "de");
+    if (homeCompare !== 0) return homeCompare;
+    return String(a.text || "").localeCompare(String(b.text || ""), "de");
+  });
 }
 
 export function filterNachbestellRows(rows, doctorQuery, textQuery = "") {
@@ -1254,11 +1270,7 @@ export function buildNachbestellTree(data, doctorFilter = "", textFilter = "") {
   return Array.from(map.values())
     .map((group) => ({
       doctor: group.doctor,
-      patients: Array.from(group.patients.values()).sort((a, b) => {
-        const last = String(a.patientLastName || "").localeCompare(String(b.patientLastName || ""), "de");
-        if (last !== 0) return last;
-        return String(a.patientFirstName || "").localeCompare(String(b.patientFirstName || ""), "de");
-      })
+      patients: Array.from(group.patients.values()).sort(comparePatientsByLastName)
     }))
     .sort((a, b) => String(a.doctor).localeCompare(String(b.doctor), "de"));
 }
