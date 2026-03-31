@@ -1075,7 +1075,7 @@ export function buildNachbestellRows(data) {
         rows.push({
           rowId: `${home.homeId}_${patient.patientId}_${rezept.rezeptId}`,
           doctor: rezept.arzt || "",
-          patient: `${patient.firstName || ""} ${patient.lastName || ""}`.trim(),
+          patient: `${patient.lastName || ""} ${patient.firstName || ""}`.trim(),
           patientFirstName: patient.firstName || "",
           patientLastName: patient.lastName || "",
           geb: patient.birthDate || "",
