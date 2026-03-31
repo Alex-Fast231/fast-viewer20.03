@@ -22,11 +22,13 @@ import {
   createPatient,
   updatePatient,
   updateHomeAddress,
+  deleteHome,
   createRezept,
   updateRezept,
   deleteRezept,
   createRezeptEntry,
   updateRezeptEntry,
+  deleteRezeptEntry,
   getHomeById,
   getPatientById,
   getRezeptById,
@@ -737,7 +739,7 @@ function openHtmlDocument(title, bodyHtml, { autoPrint = false } = {}) {
         body{
           font-family: Arial, sans-serif;
           padding: 24px;
-          color:#1f2a24;
+          color:#111827;
           line-height: 1.45;
         }
         h1{
@@ -749,7 +751,7 @@ function openHtmlDocument(title, bodyHtml, { autoPrint = false } = {}) {
           padding:10px 0;
         }
         .muted{
-          color:#5f6f66;
+          color:#6b7280;
           font-size:12px;
         }
         .print-actions{
@@ -763,12 +765,12 @@ function openHtmlDocument(title, bodyHtml, { autoPrint = false } = {}) {
           border-radius:8px;
           padding:10px 14px;
           cursor:pointer;
-          background:#4caf7a;
+          background:#2563eb;
           color:white;
           font-weight:600;
         }
         button.secondary{
-          background:#e1ece6;
+          background:#e5e7eb;
           color:#111827;
         }
         @media print{
@@ -1974,6 +1976,7 @@ export function showHomesView({ onLock, searchText = "" }) {
 
               <div class="row">
                 <button class="saveHomeEditBtn" data-home-id="${home.homeId}">Speichern</button>
+                <button class="deleteHomeBtn danger" data-home-id="${home.homeId}">Heim löschen</button>
               </div>
               <div id="home-edit-msg-${home.homeId}"></div>
             </div>
@@ -2029,7 +2032,7 @@ export function showHomesView({ onLock, searchText = "" }) {
 
   document.querySelectorAll(".home-open-card").forEach((card) => {
     card.onclick = (event) => {
-      if (event.target.closest(".editHomeToggleBtn") || event.target.closest(".saveHomeEditBtn") || event.target.closest(".edit-home-panel")) {
+      if (event.target.closest(".editHomeToggleBtn") || event.target.closest(".saveHomeEditBtn") || event.target.closest(".deleteHomeBtn") || event.target.closest(".edit-home-panel")) {
         return;
       }
       showHomeDetailView({ onLock, homeId: card.dataset.homeId });
@@ -2074,6 +2077,24 @@ export function showHomesView({ onLock, searchText = "" }) {
       } catch (err) {
         console.error(err);
         msg.textContent = "Heim konnte nicht aktualisiert werden.";
+      }
+    };
+  });
+
+  document.querySelectorAll(".deleteHomeBtn").forEach((btn) => {
+    btn.onclick = async (event) => {
+      event.stopPropagation();
+      const homeId = btn.dataset.homeId;
+      const ok = window.confirm("Heim wirklich löschen? Alle Patienten, Rezepte und Dokumentationen dieses Heims werden ebenfalls gelöscht.");
+      if (!ok) return;
+
+      try {
+        deleteHome(homeId);
+        await queuePersistRuntimeData();
+        showHomesView({ onLock });
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "Heim konnte nicht gelöscht werden.");
       }
     };
   });
@@ -3033,7 +3054,10 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
             <p><strong>${escapeHtml(entry.date || "Ohne Datum")}</strong></p>
             <p>${escapeHtml(entry.text || "")}</p>
             <p class="muted">Automatische Zeit: ${escapeHtml(formatMinutesLabel(entry.autoTimeMinutes || 0))}</p>
-            <button class="editEntryBtn secondary" data-entry-id="${entry.entryId}">Eintrag bearbeiten</button>
+            <div class="row" style="margin-top:10px;">
+              <button class="editEntryBtn secondary" data-entry-id="${entry.entryId}">Eintrag bearbeiten</button>
+              <button class="deleteEntryBtn danger" data-entry-id="${entry.entryId}">Eintrag löschen</button>
+            </div>
           </div>
         `).join("")}
       </div>
@@ -3122,6 +3146,22 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
         rezeptId,
         entryId: btn.dataset.entryId
       });
+    };
+  });
+
+  document.querySelectorAll(".deleteEntryBtn").forEach((btn) => {
+    btn.onclick = async () => {
+      const ok = window.confirm("Dokumentationseintrag wirklich löschen?");
+      if (!ok) return;
+
+      try {
+        deleteRezeptEntry(homeId, patientId, rezeptId, btn.dataset.entryId);
+        await queuePersistRuntimeData();
+        showRezeptDetailView({ onLock, homeId, patientId, rezeptId });
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "Dokumentationseintrag konnte nicht gelöscht werden.");
+      }
     };
   });
 
