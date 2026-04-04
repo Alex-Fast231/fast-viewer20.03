@@ -17,6 +17,7 @@ export function createEmptyAppData() {
     exportTimestamp: "",
 
     settings: {
+      therapistId: "",
       therapistName: "",
       therapistFax: "",
       practicePhone: "",
@@ -54,7 +55,6 @@ export function createEmptyAppData() {
     },
 
     abwesenheiten: [],
-    specialDays: [],
 
     abgabeHistory: [],
     nachbestellHistory: [],
