@@ -17,6 +17,7 @@ export function createEmptyAppData() {
     exportTimestamp: "",
 
     settings: {
+      therapistId: "",
       therapistName: "",
       therapistFax: "",
       practicePhone: "",

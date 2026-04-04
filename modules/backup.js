@@ -379,6 +379,7 @@ export function migrateBackupData(data, fromVersion) {
     return {
       ...source,
       schemaVersion: ensureSchemaVersion(source.schemaVersion, version),
+      therapistId: ensureStringField(source.therapistId),
       therapistName: ensureStringField(source.therapistName),
       therapistFax: ensureStringField(source.therapistFax),
       practicePhone: ensureStringField(source.practicePhone),
@@ -446,6 +447,7 @@ export function buildBackupMeta(runtimeData) {
     appVersion: APP_VERSION,
     viewerCompatible: true,
     exportTimestamp: new Date().toISOString(),
+    therapistId: normalized.settings?.therapistId || "",
     therapistName: normalized.settings?.therapistName || "",
     therapistFax: normalized.settings?.therapistFax || "",
     practicePhone: normalized.settings?.practicePhone || "",
@@ -525,6 +527,10 @@ export function validateBackupMeta(meta) {
 
   if (!meta.exportTimestamp) {
     throw new Error("meta.json enthält keinen exportTimestamp");
+  }
+
+  if (meta.therapistId !== undefined && typeof meta.therapistId !== "string") {
+    throw new Error("meta.json enthält keine gültige therapistId");
   }
 
   if (typeof meta.therapistName !== "string") {
@@ -610,6 +616,7 @@ function validateBackupCompatibility({ encryptedAppData, cryptoMeta, meta }) {
 
     const normalizedMeta = finalizeAppStructure({
       settings: {
+        therapistId: meta.therapistId || "",
         therapistName: meta.therapistName || "",
         practicePhone: meta.practicePhone || "",
         therapistFax: meta.therapistFax || "",

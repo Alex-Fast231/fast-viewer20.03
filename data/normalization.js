@@ -43,6 +43,13 @@ function ensureIsoString(value, fallback = "") {
   return fallback;
 }
 
+
+
+function ensureStableTherapistId(value) {
+  const normalized = ensureString(value).trim();
+  return normalized || generateId("therapist");
+}
+
 function ensureWeeklyHours(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
@@ -314,6 +321,7 @@ export function finalizeAppStructure(data) {
     exportTimestamp: ensureIsoString(source.exportTimestamp),
 
     settings: {
+      therapistId: ensureStableTherapistId(settings.therapistId),
       therapistName: ensureString(settings.therapistName),
       therapistFax: ensureString(settings.therapistFax),
       practicePhone: ensureString(settings.practicePhone),
