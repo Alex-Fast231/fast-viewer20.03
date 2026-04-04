@@ -43,23 +43,6 @@ function ensureIsoString(value, fallback = "") {
   return fallback;
 }
 
-
-
-function createStableTherapistId() {
-  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
-    return `therapist_${globalThis.crypto.randomUUID()}`;
-  }
-  return generateId("therapist");
-}
-
-function ensureTherapistId(...values) {
-  for (const value of values) {
-    const normalized = ensureString(value).trim();
-    if (normalized) return normalized;
-  }
-  return createStableTherapistId();
-}
-
 function ensureWeeklyHours(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
@@ -119,16 +102,10 @@ function normalizeRezept(rezept) {
     }
   }
 
-  const statusValue = ensureString(source.status, "Aktiv") || "Aktiv";
-const allowedStatus = ["Aktiv", "Pausiert", "Abgeschlossen", "Abgegeben"].includes(statusValue)
-  ? statusValue
-  : "Aktiv";
-
 return {
   rezeptId: ensureString(source.rezeptId || source.id) || generateId("rezept"),
   arzt: ensureString(source.arzt || source.doctor),
   ausstell: getNormalizedRezeptAusstellungsdatum(source),
-  status: allowedStatus,
   bg: ensureBoolean(source.bg, false),
   dt: ensureBoolean(source.dt, false),
   items,
@@ -162,6 +139,16 @@ return {
       confirmed: ensureBoolean(entry.confirmed, true),
       createdAt: ensureIsoString(entry.createdAt, now),
       updatedAt: ensureIsoString(entry.updatedAt, now)
+    };
+  }),
+  doctorReports: ensureArray(source.doctorReports).map((item) => {
+    const now = new Date().toISOString();
+    const report = item && typeof item === "object" ? item : {};
+    return {
+      reportId: ensureString(report.reportId || report.id) || generateId("report"),
+      content: ensureString(report.content || report.text),
+      createdAt: ensureIsoString(report.createdAt, now),
+      updatedAt: ensureIsoString(report.updatedAt, now)
     };
   })
 };
@@ -202,14 +189,21 @@ function normalizeAbgabeHistory(items) {
       id: ensureString(source.id) || generateId("abgabe"),
       createdAt: ensureIsoString(source.createdAt),
       title: ensureString(source.title),
+      snapshotHtml: ensureString(source.snapshotHtml),
       rows: ensureArray(source.rows).map((row) => ({
         heim: ensureString(row?.heim),
         patient: ensureString(row?.patient),
+        patientFirstName: ensureString(row?.patientFirstName),
+        patientLastName: ensureString(row?.patientLastName),
         geb: ensureDeDateString(row?.geb),
         ausstell: ensureDeDateString(row?.ausstell),
         leistung: ensureString(row?.leistung),
         anzahl: ensureString(row?.anzahl),
-        menge: ensureString(row?.menge)
+        menge: ensureString(row?.menge),
+        arzt: ensureString(row?.arzt || row?.doctor),
+        befreit: ensureBoolean(row?.befreit, false),
+        bg: ensureBoolean(row?.bg, false),
+        dt: ensureBoolean(row?.dt, false)
       }))
     };
   });
@@ -267,6 +261,20 @@ function normalizeAbwesenheiten(items) {
   });
 }
 
+function normalizeSpecialDays(items) {
+  return ensureArray(items).map((item) => {
+    const source = item && typeof item === "object" ? item : {};
+    return {
+      id: ensureString(source.id) || generateId("specialday"),
+      type: "holiday",
+      date: ensureDeDateString(source.date || source.datum),
+      createdAt: ensureIsoString(source.createdAt, new Date().toISOString()),
+      updatedAt: ensureIsoString(source.updatedAt, new Date().toISOString())
+    };
+  }).filter((item) => item.date);
+}
+
+
 function normalizeNachbestellHistory(items) {
   return ensureArray(items).map((item) => {
     const source = item && typeof item === "object" ? item : {};
@@ -306,7 +314,6 @@ export function finalizeAppStructure(data) {
     exportTimestamp: ensureIsoString(source.exportTimestamp),
 
     settings: {
-      therapistId: ensureTherapistId(settings.therapistId, source.therapistId),
       therapistName: ensureString(settings.therapistName),
       therapistFax: ensureString(settings.therapistFax),
       practicePhone: ensureString(settings.practicePhone),
@@ -337,6 +344,7 @@ export function finalizeAppStructure(data) {
     kilometer: normalizeKilometerState(source.kilometer),
 
     abwesenheiten: normalizeAbwesenheiten(source.abwesenheiten),
+    specialDays: normalizeSpecialDays(source.specialDays),
 
     abgabeHistory: normalizeAbgabeHistory(source.abgabeHistory),
     nachbestellHistory: normalizeNachbestellHistory(source.nachbestellHistory),

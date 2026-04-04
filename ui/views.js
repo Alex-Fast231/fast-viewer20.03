@@ -1,5 +1,5 @@
 import { createEmptyAppData } from "../data/schema.js";
-import { setupSecurity, unlockWithPIN, updateSecurityCredentials } from "../security/auth.js";
+import { setupSecurity, unlockWithPIN } from "../security/auth.js";
 import { getRemainingLockoutMs } from "../security/lock.js";
 import {
   getCryptoMeta,
@@ -22,11 +22,13 @@ import {
   createPatient,
   updatePatient,
   updateHomeAddress,
+  deleteHome,
   createRezept,
   updateRezept,
   deleteRezept,
   createRezeptEntry,
   updateRezeptEntry,
+  deleteRezeptEntry,
   getHomeById,
   getPatientById,
   getRezeptById,
@@ -97,13 +99,6 @@ function sortRezepteForDisplay(rezepte) {
   return [...(rezepte || [])].sort((a, b) => compareDeDates(b?.ausstell, a?.ausstell));
 }
 
-function getStatusPillClass(status) {
-  if (status === "Abgegeben") return "pill-gray";
-  if (status === "Abgeschlossen") return "pill-blue";
-  if (status === "Pausiert") return "pill-orange";
-  return "pill-green";
-}
-
 function renderRezeptMarkerLine(rezept, frist) {
   const blanko = (rezept.items || []).some((i) => i.type === "Blanko");
 
@@ -116,7 +111,6 @@ function renderRezeptMarkerLine(rezept, frist) {
 
   return `
     <div style="margin-bottom:8px;">
-      <span class="${getStatusPillClass(rezept.status || "Aktiv")}">${escapeHtml(rezept.status || "Aktiv")}</span>
       ${rezept.bg ? `<span class="pill">BG</span>` : ""}
       ${rezept.dt ? `<span class="pill">DT</span>` : ""}
       ${blanko ? `<span class="pill">Blanko</span>` : ""}
@@ -164,6 +158,10 @@ function getAbsenceRows(data) {
   return Array.isArray(data?.abwesenheiten) ? data.abwesenheiten : [];
 }
 
+function getSpecialDayRows(data) {
+  return Array.isArray(data?.specialDays) ? data.specialDays : [];
+}
+
 function isComparableDateWithinAbsence(comparableDate, absence) {
   const from = parseDeDate(absence?.from);
   const to = parseDeDate(absence?.to);
@@ -173,6 +171,12 @@ function isComparableDateWithinAbsence(comparableDate, absence) {
 
 function getAbsenceForComparableDate(data, comparableDate) {
   return getAbsenceRows(data).find((item) => isComparableDateWithinAbsence(comparableDate, item)) || null;
+}
+
+function getSpecialDayForComparableDate(data, comparableDate) {
+  if (!comparableDate) return null;
+  const targetDate = formatComparableToDe(comparableDate);
+  return getSpecialDayRows(data).find((item) => item?.date === targetDate) || null;
 }
 
 function collectAllTimeEntries(data) {
@@ -227,7 +231,8 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     const workDayCode = getWorkDayCodeFromComparable(comparableDate);
     const isWorkDay = workDays.includes(workDayCode);
     const absence = isWorkDay ? getAbsenceForComparableDate(data, comparableDate) : null;
-    const plannedMinutes = isWorkDay && !absence ? dailyPlannedMinutes : 0;
+    const specialDay = isWorkDay && !absence ? getSpecialDayForComparableDate(data, comparableDate) : null;
+    const plannedMinutes = isWorkDay && !absence && !specialDay ? dailyPlannedMinutes : 0;
     const saldoMinutes = totalMinutes - plannedMinutes;
 
     return {
@@ -236,9 +241,10 @@ function getTimePeriodSummary(data, fromDate, toDate) {
       plannedMinutes,
       saldoMinutes,
       isWorkDay,
-      absenceType: absence?.type || ''
+      absenceType: absence?.type || '',
+      isHoliday: Boolean(specialDay)
     };
-  }).filter((row) => row.totalMinutes > 0 || row.plannedMinutes > 0 || row.absenceType);
+  }).filter((row) => row.totalMinutes > 0 || row.plannedMinutes > 0 || row.absenceType || row.isHoliday);
 
   const totalMinutes = dailyRows.reduce((sum, row) => sum + row.totalMinutes, 0);
   const plannedMinutes = dailyRows.reduce((sum, row) => sum + row.plannedMinutes, 0);
@@ -254,6 +260,16 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     return true;
   }).sort((a, b) => compareDeDates(a?.from, b?.from));
 
+  const specialDayRows = getSpecialDayRows(data).filter((item) => {
+    const date = parseDeDate(item?.date);
+    const filterFrom = parseDeDate(fromDate);
+    const filterTo = parseDeDate(toDate);
+    if (!date) return false;
+    if (filterFrom && date < filterFrom) return false;
+    if (filterTo && date > filterTo) return false;
+    return true;
+  }).sort((a, b) => compareDeDates(a?.date, b?.date));
+
   return {
     fromDate: String(fromDate || '').trim(),
     toDate: String(toDate || '').trim(),
@@ -261,9 +277,114 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     plannedMinutes,
     saldoMinutes,
     dailyRows,
-    absenceRows
+    absenceRows,
+    specialDayRows
   };
 }
+
+
+function getTimeOverviewStatusLabel(row) {
+  if (row?.absenceType === 'krank') return 'Krank';
+  if (row?.absenceType === 'urlaub') return 'Urlaub';
+  if (row?.isHoliday) return 'Feiertag';
+  return 'Arbeit';
+}
+
+function buildTimeOverviewPrintMarkup({ therapistName, summary }) {
+  const absenceMarkup = summary.absenceRows.length === 0
+    ? '<p>Keine Urlaubs- oder Krankheitseinträge im Zeitraum.</p>'
+    : `<table><thead><tr><th>Status</th><th>Von</th><th>Bis</th></tr></thead><tbody>${summary.absenceRows.map((item) => `
+      <tr>
+        <td>${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</td>
+        <td>${escapeHtml(item.from || '—')}</td>
+        <td>${escapeHtml(item.to || '—')}</td>
+      </tr>
+    `).join('')}</tbody></table>`;
+
+  const holidayMarkup = summary.specialDayRows.length === 0
+    ? '<p>Keine Feiertage im Zeitraum.</p>'
+    : `<table><thead><tr><th>Feiertag</th></tr></thead><tbody>${summary.specialDayRows.map((item) => `
+      <tr><td>${escapeHtml(item.date || '—')}</td></tr>
+    `).join('')}</tbody></table>`;
+
+  const dailyMarkup = summary.dailyRows.length === 0
+    ? '<p>Keine Zeiten im gewählten Zeitraum.</p>'
+    : `<table><thead><tr><th>Datum</th><th>Status</th><th>Geleistete Zeit</th><th>Soll-Zeit</th><th>Tages-Saldo</th></tr></thead><tbody>${summary.dailyRows.map((row) => `
+      <tr>
+        <td>${escapeHtml(row.date || '—')}</td>
+        <td>${escapeHtml(getTimeOverviewStatusLabel(row))}</td>
+        <td>${escapeHtml(formatHoursClockLabel(row.totalMinutes))}</td>
+        <td>${escapeHtml(formatHoursClockLabel(row.plannedMinutes))}</td>
+        <td>${escapeHtml(formatHoursClockLabel(Math.abs(row.saldoMinutes)))} ${row.saldoMinutes > 0 ? 'Plus' : row.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td>
+      </tr>
+    `).join('')}</tbody></table>`;
+
+  return `
+    <div class="print-section">
+      <div><strong>Therapeut:</strong> ${escapeHtml(therapistName || '—')}</div>
+      <div><strong>Zeitraum:</strong> ${escapeHtml(summary.fromDate || '—')} bis ${escapeHtml(summary.toDate || '—')}</div>
+    </div>
+
+    <div class="print-section">
+      <h3>Gesamt</h3>
+      <table>
+        <tbody>
+          <tr><th>Soll-Zeit</th><td>${escapeHtml(formatHoursClockLabel(summary.plannedMinutes))}</td></tr>
+          <tr><th>Ist-Zeit</th><td>${escapeHtml(formatHoursClockLabel(summary.totalMinutes))}</td></tr>
+          <tr><th>Saldo</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.saldoMinutes)))} ${summary.saldoMinutes > 0 ? 'Plus' : summary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="print-section">
+      <h3>Tagesliste</h3>
+      ${dailyMarkup}
+    </div>
+
+    <div class="print-section">
+      <h3>Urlaub / Krank</h3>
+      ${absenceMarkup}
+    </div>
+
+    <div class="print-section">
+      <h3>Feiertage</h3>
+      ${holidayMarkup}
+    </div>
+  `;
+}
+
+function printTimeOverview() {
+  const contentNode = document.getElementById('zeituebersicht-content');
+  if (!contentNode) return;
+  const content = contentNode.innerHTML;
+  const win = window.open('', '', 'width=1000,height=800');
+  if (!win) return;
+
+  win.document.write(`<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Zeitübersicht</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #111827; }
+        h2 { margin: 0 0 18px 0; }
+        h3 { margin: 0 0 10px 0; font-size: 18px; }
+        .print-section { margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { border: 1px solid #d1d5db; padding: 8px; text-align: left; vertical-align: top; }
+        th { background: #f3f4f6; }
+      </style>
+    </head>
+    <body>
+      <h2>Zeitübersicht</h2>
+      ${content}
+    </body>
+  </html>`);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+window.printTimeOverview = printTimeOverview;
 
 function getDashboardTodayPatients(data, targetDate = formatCurrentDateShort()) {
   const normalizedDate = String(targetDate || '').trim();
@@ -806,6 +927,118 @@ function renderNachbestellLetterHtml(letterData = {}) {
   `;
 }
 
+
+function ensureDoctorReportsState(rezept) {
+  if (!rezept || typeof rezept !== "object") return [];
+  if (!Array.isArray(rezept.doctorReports)) {
+    rezept.doctorReports = [];
+  }
+  return rezept.doctorReports;
+}
+
+function buildDoctorReportTemplate({ patient, rezept }) {
+  const today = formatCurrentDateShort();
+  const patientName = `${patient?.firstName || ""} ${patient?.lastName || ""}`.trim() || "Patient/in";
+  const birthDate = patient?.birthDate ? `, geb.: ${patient.birthDate}` : "";
+  const homeName = patient?.homeName || "";
+  const ausstell = rezept?.ausstell || "—";
+
+  return [
+    `Therapiebericht an ${rezept?.arzt || "den behandelnden Arzt"} vom ${today}`,
+    "",
+    "für den Patienten:",
+    `${patientName}${birthDate}`,
+    homeName ? `Einrichtung: ${homeName}` : "",
+    "",
+    `Ihre Verordnung vom ${ausstell}`,
+    "",
+    "Stand der Therapie:",
+    "",
+    "Besonderheiten während des Behandlungsverlaufs:",
+    "",
+    "Fortsetzung der Therapie vorgeschlagen:",
+    "",
+    "Prognostische Einschätzung:",
+    "",
+    "Mit freundlichen Grüßen",
+    "",
+    ""
+  ].join("\n").replace('für den Patienten:\",\"', 'für den Patienten:');
+}
+
+function getPracticeHeaderLines(settings = {}) {
+  const lines = buildCleanLetterHeaderLines([
+    'Physio Strobl',
+    'therapeutisches Handwerk',
+    settings.practiceAddress || '',
+    settings.practicePhone ? `Telefon ${settings.practicePhone}` : '',
+    settings.therapistFax ? `Fax ${settings.therapistFax}` : ''
+  ]);
+  return lines;
+}
+
+function formatDoctorReportBodyHtml(content = "") {
+  const labels = [
+    'Stand der Therapie:',
+    'Besonderheiten während des Behandlungsverlaufs:',
+    'Fortsetzung der Therapie vorgeschlagen:',
+    'Prognostische Einschätzung:'
+  ];
+
+  let html = escapeAndPreserveLineBreaks(content || '').replace(
+    /Therapiebericht an .*? vom .*?(<br>|$)/,
+    ''
+  );
+
+  labels.forEach((label) => {
+    const escapedLabel = escapeHtml(label);
+    html = html.replaceAll(escapedLabel, `<strong>${escapedLabel}</strong>`);
+  });
+
+  return html;
+}
+
+function renderDoctorReportPrintHtml({ settings = {}, patient = {}, rezept = {}, report = {} }) {
+  const headerLines = getPracticeHeaderLines(settings);
+  const createdDate = formatIsoDateShort(report?.createdAt);
+  const subjectDate = formatCurrentDateShort(new Date(report?.createdAt || Date.now()));
+  const patientName = `${patient?.firstName || ""} ${patient?.lastName || ""}`.trim() || 'Patient/in';
+  const bodyHtml = formatDoctorReportBodyHtml(report?.content || '');
+
+  return `
+    <style>
+      .doctor-report-wrap{max-width:820px;margin:0 auto;color:#111827;}
+      .doctor-report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:28px;}
+      .doctor-report-head-left .line{font-size:14px;}
+      .doctor-report-date{white-space:nowrap;font-size:14px;}
+      .doctor-report-recipient{margin:18px 0 26px;}
+      .doctor-report-title{font-size:28px;font-weight:700;margin:0 0 18px;line-height:1.2;}
+      .doctor-report-meta{margin:0 0 18px;}
+      .doctor-report-body{white-space:normal;line-height:1.55;}
+      .doctor-report-sign{margin-top:28px;}
+    </style>
+    <div class="doctor-report-wrap">
+      <div class="doctor-report-head">
+        <div class="doctor-report-head-left">
+          ${headerLines.map((line, index) => `<div class="line">${index === 0 ? `<strong>${escapeHtml(line)}</strong>` : escapeHtml(line)}</div>`).join('')}
+        </div>
+        <div class="doctor-report-date">${escapeHtml(createdDate)}</div>
+      </div>
+
+      <div class="doctor-report-recipient">${escapeHtml(rezept?.arzt || '—')}</div>
+      <div class="doctor-report-title">Therapiebericht an ${escapeHtml(rezept?.arzt || '—')} vom ${escapeHtml(subjectDate)}</div>
+      <div class="doctor-report-meta">
+        <strong>für den Patienten:</strong><br>
+        ${escapeHtml(patientName)}${patient?.birthDate ? `, geb.: ${escapeHtml(patient.birthDate)}` : ''}<br>
+        ${patient?.homeName ? `Einrichtung: ${escapeHtml(patient.homeName)}<br>` : ''}
+        Ihre Verordnung vom ${escapeHtml(rezept?.ausstell || '—')}
+      </div>
+      <div class="doctor-report-body">${bodyHtml}</div>
+      <div class="doctor-report-sign">${escapeHtml(settings?.therapistName || '')}</div>
+    </div>
+  `;
+}
+
 async function wipeAllAppData() {
   clearRuntimeSession();
   await new Promise((resolve, reject) => {
@@ -871,7 +1104,7 @@ export function showSetupView({ onSuccess }) {
   render(`
     <div class="card">
       <h2>Ersteinrichtung</h2>
-      <p class="muted">FaSt-Doku wird jetzt mit Praxispasswort und Workflow-PIN abgesichert.</p>
+      <p class="muted">FaSt-Doku wird jetzt mit Praxispasswort und PIN abgesichert.</p>
 
       <label for="therapistName">Therapeutenname</label>
       <input id="therapistName" type="text" autocomplete="off">
@@ -895,10 +1128,10 @@ export function showSetupView({ onSuccess }) {
       <label for="practicePassword">Praxispasswort</label>
       <input id="practicePassword" type="password" autocomplete="new-password">
 
-      <label for="workflowPin">Workflow-PIN (mindestens 6 Zeichen)</label>
+      <label for="workflowPin">PIN (mindestens 6 Zeichen)</label>
       <input id="workflowPin" type="password" inputmode="numeric" autocomplete="new-password">
 
-      <label for="workflowPinRepeat">Workflow-PIN wiederholen</label>
+      <label for="workflowPinRepeat">PIN wiederholen</label>
       <input id="workflowPinRepeat" type="password" inputmode="numeric" autocomplete="new-password">
 
       <button id="saveSetupBtn">Einrichtung abschließen</button>
@@ -954,12 +1187,12 @@ export function showSetupView({ onSuccess }) {
     }
 
     if (!pin || pin.length < 6) {
-      msg.textContent = "Die Workflow-PIN muss mindestens 6 Zeichen haben.";
+      msg.textContent = "Die PIN muss mindestens 6 Zeichen haben.";
       return;
     }
 
     if (pin !== pinRepeat) {
-      msg.textContent = "Die Workflow-PIN stimmt nicht überein.";
+      msg.textContent = "Die PIN stimmt nicht überein.";
       return;
     }
 
@@ -1002,10 +1235,10 @@ export function showLoginView({ onSuccess }) {
 
   render(`
     <div class="card">
-      <h2>Workflow-PIN Login</h2>
+      <h2>PIN Login</h2>
       <p class="muted">Bitte PIN eingeben, um FaSt-Doku zu entsperren.</p>
 
-      <label for="loginPin">Workflow-PIN</label>
+      <label for="loginPin">PIN</label>
       <input id="loginPin" type="password" inputmode="numeric" autocomplete="current-password">
 
       <button id="loginBtn">Entsperren</button>
@@ -1121,14 +1354,6 @@ export function showSettingsView({ onLock }) {
       <label for="settingsWeeklyHours">Arbeitsstunden pro Woche</label>
       <input id="settingsWeeklyHours" type="text" inputmode="decimal" autocomplete="off" value="${escapeHtml(settings.weeklyHours || "")}" placeholder="z. B. 20 oder 38.5">
 
-      <div class="muted" style="margin:12px 0 16px 0;">Das Praxispasswort ist als Master-Key fest hinterlegt und kann in der App nicht geändert werden.</div>
-
-      <label for="settingsWorkflowPin">Neue Workflow-PIN</label>
-      <input id="settingsWorkflowPin" type="password" inputmode="numeric" autocomplete="new-password" placeholder="leer lassen = unverändert">
-
-      <label for="settingsWorkflowPinRepeat">Neue Workflow-PIN wiederholen</label>
-      <input id="settingsWorkflowPinRepeat" type="password" inputmode="numeric" autocomplete="new-password" placeholder="leer lassen = unverändert">
-
       <button id="saveSettingsBtn">Änderungen speichern</button>
       <div id="settingsMessage"></div>
     </div>
@@ -1147,8 +1372,6 @@ export function showSettingsView({ onLock }) {
     const therapistFax = document.getElementById("settingsTherapistFax").value.trim();
     const workDays = WORK_DAY_OPTIONS.filter((day) => document.getElementById(`settingsWorkDay-${day}`)?.checked);
     const weeklyHours = normalizeWeeklyHoursInput(document.getElementById("settingsWeeklyHours").value);
-    const newPin = document.getElementById("settingsWorkflowPin").value;
-    const newPinRepeat = document.getElementById("settingsWorkflowPinRepeat").value;
     const msg = document.getElementById("settingsMessage");
 
     msg.className = "error";
@@ -1156,16 +1379,6 @@ export function showSettingsView({ onLock }) {
 
     if (!isValidWeeklyHours(weeklyHours)) {
       msg.textContent = "Die Arbeitsstunden pro Woche müssen als Zahl eingegeben werden, z. B. 20 oder 38.5.";
-      return;
-    }
-
-    if ((newPin || newPinRepeat) && newPin !== newPinRepeat) {
-      msg.textContent = "Die neue Workflow-PIN stimmt nicht überein.";
-      return;
-    }
-
-    if (newPin && newPin.length < 6) {
-      msg.textContent = "Die Workflow-PIN muss mindestens 6 Zeichen haben.";
       return;
     }
 
@@ -1180,20 +1393,9 @@ export function showSettingsView({ onLock }) {
         data.settings.updatedAt = new Date().toISOString();
       });
 
-      if (newPin) {
-        const nextCryptoMeta = await updateSecurityCredentials({
-          runtimeKey: getRuntimeKey(),
-          currentCryptoMeta: getCryptoMeta(),
-          pin: newPin
-        });
-        setCryptoMeta(nextCryptoMeta);
-      }
-
       await queuePersistRuntimeData();
       msg.className = "success";
       msg.textContent = "Einstellungen gespeichert.";
-      document.getElementById("settingsWorkflowPin").value = "";
-      document.getElementById("settingsWorkflowPinRepeat").value = "";
     } catch (err) {
       console.error(err);
       msg.className = "error";
@@ -1202,7 +1404,7 @@ export function showSettingsView({ onLock }) {
   };
 }
 
-export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "" } = {}) {
+export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "", showHolidayForm = false } = {}) {
   bindLockButton(onLock);
   setCurrentView("dashboard");
 
@@ -1216,11 +1418,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const hasTimeSummaryFilter = Boolean(String(timeSummaryFrom || '').trim() || String(timeSummaryTo || '').trim());
   const dashboardTodayPatients = getDashboardTodayPatients(runtimeData, todayDate);
   const absenceRows = timePeriodSummary.absenceRows;
+  const specialDayRows = timePeriodSummary.specialDayRows;
 
   render(`
     ${renderDashboardHeaderCard({ therapistName })}
 
-    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm ? 'open' : ''}>
+    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm || showHolidayForm ? 'open' : ''}>
       <summary>
         <span>Überblick</span>
         <span class="muted">Stunden</span>
@@ -1243,9 +1446,13 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
           <input id="dashboardTimeSummaryTo" type="text" value="${escapeHtml(timeSummaryTo)}" placeholder="TT.MM.JJJJ" inputmode="numeric">
 
           <div class="row">
-            <button id="runDashboardTimeSummaryBtn">Auswertung anzeigen</button>
             <button id="openUrlaubBtn" class="secondary">Urlaub</button>
             <button id="openKrankBtn" class="secondary">Krank</button>
+            <button id="openHolidayBtn" class="secondary">Feiertage</button>
+          </div>
+          <div class="row">
+            <button id="runDashboardTimeSummaryBtn">Auswertung anzeigen</button>
+            <button id="printTimeOverviewBtn" class="secondary">Drucken</button>
           </div>
 
           <div id="dashboardAbsenceFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showAbsenceForm ? 'block' : 'none'};">
@@ -1263,35 +1470,60 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <div id="dashboardAbsenceMsg"></div>
           </div>
 
-          <div class="compact-card" style="margin:12px 0 0 0; padding:10px;">
-            <div style="font-weight:600;">Zeitsaldo</div>
+          <div id="dashboardHolidayFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showHolidayForm ? 'block' : 'none'};">
+            <div style="font-weight:600; margin-bottom:10px;">Feiertag eintragen</div>
+            <label for="dashboardHolidayDate">Datum</label>
+            <input id="dashboardHolidayDate" type="text" placeholder="TT.MM.JJJJ" inputmode="numeric">
+
+            <div class="row">
+              <button id="saveDashboardHolidayBtn">Speichern</button>
+              <button id="cancelDashboardHolidayBtn" class="secondary">Abbrechen</button>
+            </div>
+            <div id="dashboardHolidayMsg"></div>
+          </div>
+
+          <div id="zeituebersicht-content" style="display:none;">
+            ${buildTimeOverviewPrintMarkup({ therapistName, summary: timePeriodSummary })}
+          </div>
+
+          <div class="compact-card" style="margin-top:12px; padding:12px;">
+            <div style="font-size:18px; font-weight:700; margin-bottom:6px;">Zeitsaldo</div>
             <div class="compact-meta">Geleistete Zeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.totalMinutes))}</div>
             <div class="compact-meta">Sollzeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.plannedMinutes))}</div>
             <div class="compact-meta">Saldo: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.saldoMinutes)))} ${timePeriodSummary.saldoMinutes > 0 ? 'Plus' : timePeriodSummary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
             <div class="compact-meta">Zeitraum: ${escapeHtml(timePeriodSummary.fromDate || '—')} bis ${escapeHtml(timePeriodSummary.toDate || '—')}</div>
           </div>
 
-          <div class="compact-card" style="margin:12px 0 0 0; padding:10px;">
-            <div style="font-weight:600; margin-bottom:8px;">Urlaub / Krank</div>
-            ${absenceRows.length === 0 ? `<p class="muted" style="margin:0;">Noch keine Einträge vorhanden.</p>` : absenceRows.map((item) => `
-              <div class="compact-card" style="margin:0 0 8px 0; padding:10px;">
-                <div style="font-weight:600;">${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</div>
-                <div class="compact-meta">${escapeHtml(item.from || '—')} bis ${escapeHtml(item.to || '—')}</div>
-                <div class="row" style="margin-top:8px;">
-                  <button class="secondary delete-absence-btn" data-absence-id="${escapeHtml(item.id)}">Löschen</button>
+          <div class="compact-card" style="margin-top:12px; padding:12px;">
+            <div style="font-size:18px; font-weight:700; margin-bottom:12px;">Urlaub / Krank / Feiertage</div>
+            <div class="list-stack">
+              ${absenceRows.length === 0 && specialDayRows.length === 0 ? `<p class="muted" style="margin:0;">Keine Einträge im gewählten Zeitraum.</p>` : ''}
+              ${absenceRows.map((item) => `
+                <div class="compact-card" style="margin:0; padding:12px;">
+                  <div style="font-weight:700; font-size:16px; margin-bottom:4px;">${escapeHtml(item.type === 'krank' ? 'Krank' : 'Urlaub')}</div>
+                  <div class="compact-meta">${escapeHtml(item.from || '—')} bis ${escapeHtml(item.to || '—')}</div>
+                  <button class="delete-absence-btn secondary" data-absence-id="${escapeHtml(item.id || '')}" style="margin-top:12px; width:100%;">Löschen</button>
                 </div>
-              </div>
-            `).join("")}
+              `).join('')}
+              ${specialDayRows.map((item) => `
+                <div class="compact-card" style="margin:0; padding:12px;">
+                  <div style="font-weight:700; font-size:16px; margin-bottom:4px;">Feiertag</div>
+                  <div class="compact-meta">${escapeHtml(item.date || '—')}</div>
+                  <button class="delete-special-day-btn secondary" data-special-day-id="${escapeHtml(item.id || '')}" style="margin-top:12px; width:100%;">Löschen</button>
+                </div>
+              `).join('')}
+            </div>
           </div>
 
           <div style="margin-top:10px;" class="list-stack">
             ${timePeriodSummary.dailyRows.length === 0 ? `<p class="muted">Keine Zeiten im gewählten Zeitraum.</p>` : timePeriodSummary.dailyRows.map((row) => `
               <div class="compact-card" style="margin:0; padding:10px;">
                 <div style="font-weight:600;">${escapeHtml(row.date || 'Ohne Datum')}</div>
+                <div class="compact-meta">Status: ${escapeHtml(getTimeOverviewStatusLabel(row))}</div>
                 <div class="compact-meta">Geleistet: ${escapeHtml(formatHoursClockLabel(row.totalMinutes))}</div>
                 <div class="compact-meta">Soll: ${escapeHtml(formatHoursClockLabel(row.plannedMinutes))}</div>
                 <div class="compact-meta">Saldo: ${escapeHtml(formatHoursClockLabel(Math.abs(row.saldoMinutes)))} ${row.saldoMinutes > 0 ? 'Plus' : row.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
-                ${row.absenceType ? `<div class="compact-meta">${escapeHtml(row.absenceType === 'krank' ? 'Krank' : 'Urlaub')} · neutral</div>` : ''}
+                ${row.absenceType ? `<div class="compact-meta">${escapeHtml(row.absenceType === 'krank' ? 'Krank' : 'Urlaub')} · neutral</div>` : row.isHoliday ? `<div class="compact-meta">Feiertag · neutral</div>` : row.isWorkDay ? `<div class="compact-meta">Arbeitstag</div>` : ''}
               </div>
             `).join("")}
           </div>
@@ -1401,10 +1633,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const dashboardTimeSummaryTo = document.getElementById("dashboardTimeSummaryTo");
   const dashboardAbsenceFrom = document.getElementById("dashboardAbsenceFrom");
   const dashboardAbsenceTo = document.getElementById("dashboardAbsenceTo");
+  const dashboardHolidayDate = document.getElementById("dashboardHolidayDate");
   if (dashboardTimeSummaryFrom) bindDateAutoFormat(dashboardTimeSummaryFrom);
   if (dashboardTimeSummaryTo) bindDateAutoFormat(dashboardTimeSummaryTo);
   if (dashboardAbsenceFrom) bindDateAutoFormat(dashboardAbsenceFrom);
   if (dashboardAbsenceTo) bindDateAutoFormat(dashboardAbsenceTo);
+  if (dashboardHolidayDate) bindDateAutoFormat(dashboardHolidayDate);
 
   const toggleDashboardTimeOverviewBtn = document.getElementById("toggleDashboardTimeOverviewBtn");
   if (toggleDashboardTimeOverviewBtn) {
@@ -1421,6 +1655,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
       const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
       const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
       showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true });
+    };
+  }
+  const printTimeOverviewBtn = document.getElementById("printTimeOverviewBtn");
+  if (printTimeOverviewBtn) {
+    printTimeOverviewBtn.onclick = () => {
+      printTimeOverview();
     };
   }
 
@@ -1442,12 +1682,30 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
     };
   }
 
+  const openHolidayBtn = document.getElementById("openHolidayBtn");
+  if (openHolidayBtn) {
+    openHolidayBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showHolidayForm: true });
+    };
+  }
+
   const cancelDashboardAbsenceBtn = document.getElementById("cancelDashboardAbsenceBtn");
   if (cancelDashboardAbsenceBtn) {
     cancelDashboardAbsenceBtn.onclick = () => {
       const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
       const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
       showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showAbsenceForm: "" });
+    };
+  }
+
+  const cancelDashboardHolidayBtn = document.getElementById("cancelDashboardHolidayBtn");
+  if (cancelDashboardHolidayBtn) {
+    cancelDashboardHolidayBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showHolidayForm: false });
     };
   }
 
@@ -1493,6 +1751,52 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
     };
   }
 
+
+  const saveDashboardHolidayBtn = document.getElementById("saveDashboardHolidayBtn");
+  if (saveDashboardHolidayBtn) {
+    saveDashboardHolidayBtn.onclick = async () => {
+      const msg = document.getElementById("dashboardHolidayMsg");
+      const dateValue = document.getElementById("dashboardHolidayDate").value.trim();
+      const normalizedDate = parseDeDate(dateValue);
+      msg.className = "error";
+      msg.textContent = "";
+
+      if (!normalizedDate) {
+        msg.textContent = "Bitte ein gültiges Datum eingeben.";
+        return;
+      }
+
+      try {
+        mutateRuntimeData((data) => {
+          if (!Array.isArray(data.specialDays)) data.specialDays = [];
+          const existingIndex = data.specialDays.findIndex((item) => item?.date === dateValue);
+          const nowIso = new Date().toISOString();
+          const nextItem = {
+            id: existingIndex >= 0 && data.specialDays[existingIndex]?.id
+              ? data.specialDays[existingIndex].id
+              : `specialday_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+            type: "holiday",
+            date: dateValue,
+            createdAt: existingIndex >= 0 && data.specialDays[existingIndex]?.createdAt
+              ? data.specialDays[existingIndex].createdAt
+              : nowIso,
+            updatedAt: nowIso
+          };
+          if (existingIndex >= 0) {
+            data.specialDays[existingIndex] = nextItem;
+          } else {
+            data.specialDays.push(nextItem);
+          }
+        });
+        await queuePersistRuntimeData();
+        showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true, showHolidayForm: false });
+      } catch (err) {
+        console.error(err);
+        msg.textContent = err?.message || "Feiertag konnte nicht gespeichert werden.";
+      }
+    };
+  }
+
   document.querySelectorAll('.delete-absence-btn').forEach((button) => {
     button.onclick = async () => {
       const absenceId = button.dataset.absenceId || '';
@@ -1503,6 +1807,19 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
       });
       await queuePersistRuntimeData();
       showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true, showAbsenceForm: "" });
+    };
+  });
+
+  document.querySelectorAll('.delete-special-day-btn').forEach((button) => {
+    button.onclick = async () => {
+      const specialDayId = button.dataset.specialDayId || '';
+      if (!specialDayId) return;
+      if (!confirm('Diesen Feiertag wirklich löschen?')) return;
+      mutateRuntimeData((data) => {
+        data.specialDays = (data.specialDays || []).filter((item) => item.id !== specialDayId);
+      });
+      await queuePersistRuntimeData();
+      showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true, showHolidayForm: false });
     };
   });
 
@@ -1659,6 +1976,7 @@ export function showHomesView({ onLock, searchText = "" }) {
 
               <div class="row">
                 <button class="saveHomeEditBtn" data-home-id="${home.homeId}">Speichern</button>
+                <button class="deleteHomeBtn danger" data-home-id="${home.homeId}">Heim löschen</button>
               </div>
               <div id="home-edit-msg-${home.homeId}"></div>
             </div>
@@ -1714,7 +2032,7 @@ export function showHomesView({ onLock, searchText = "" }) {
 
   document.querySelectorAll(".home-open-card").forEach((card) => {
     card.onclick = (event) => {
-      if (event.target.closest(".editHomeToggleBtn") || event.target.closest(".saveHomeEditBtn") || event.target.closest(".edit-home-panel")) {
+      if (event.target.closest(".editHomeToggleBtn") || event.target.closest(".saveHomeEditBtn") || event.target.closest(".deleteHomeBtn") || event.target.closest(".edit-home-panel")) {
         return;
       }
       showHomeDetailView({ onLock, homeId: card.dataset.homeId });
@@ -1759,6 +2077,24 @@ export function showHomesView({ onLock, searchText = "" }) {
       } catch (err) {
         console.error(err);
         msg.textContent = "Heim konnte nicht aktualisiert werden.";
+      }
+    };
+  });
+
+  document.querySelectorAll(".deleteHomeBtn").forEach((btn) => {
+    btn.onclick = async (event) => {
+      event.stopPropagation();
+      const homeId = btn.dataset.homeId;
+      const ok = window.confirm("Heim wirklich löschen? Alle Patienten, Rezepte und Dokumentationen dieses Heims werden ebenfalls gelöscht.");
+      if (!ok) return;
+
+      try {
+        deleteHome(homeId);
+        await queuePersistRuntimeData();
+        showHomesView({ onLock });
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "Heim konnte nicht gelöscht werden.");
       }
     };
   });
@@ -1845,6 +2181,7 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
                 </div>
                 <div class="inline-action-stack" style="margin-bottom:12px;">
                   <button class="patientSectionBtn secondary" data-target="patient-schnelldoku-${patient.patientId}">SchnellDoku</button>
+                  <button class="patientSectionBtn secondary" data-target="patient-arztbericht-${patient.patientId}">Arztbericht</button>
                 </div>
 
                 <div id="patient-rezepte-${patient.patientId}" class="patient-inline-section" style="display:none; margin-bottom:12px;">
@@ -1913,6 +2250,50 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
                   </div>
                   <button class="saveQuickDocBtn" data-patient-id="${patient.patientId}" ${rezepte.length===0?'disabled':''}>SchnellDoku speichern</button>
                   <div id="quickDocMsg-${patient.patientId}"></div>
+                </div>
+
+                <div id="patient-arztbericht-${patient.patientId}" class="patient-inline-section" style="display:none; margin-bottom:12px;">
+                  ${rezepte.length === 0 ? `<p class="muted">Keine Rezepte für Arztberichte vorhanden.</p>` : `
+                    <div class="list-stack">
+                      ${rezepte.map(rezept => {
+                        const reportCount = ensureDoctorReportsState(rezept).length;
+                        const reports = [...ensureDoctorReportsState(rezept)].sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
+                        return `
+                          <details class="accordion" style="margin-bottom:8px;">
+                            <summary>
+                              <span>${escapeHtml(rezeptSummary(rezept))}</span>
+                              <span class="muted">${reportCount} Bericht(e)</span>
+                            </summary>
+                            <div class="accordion-body">
+                              <div class="compact-meta" style="margin-bottom:10px;">
+                                Arzt: ${escapeHtml(rezept.arzt || '—')}<br>
+                                Ausstellung: ${escapeHtml(rezept.ausstell || '—')}<br>
+                                Aktuelles Datum wird beim Anlegen automatisch gesetzt.
+                              </div>
+                              <div class="row" style="margin-bottom:10px;">
+                                <button class="createDoctorReportBtn" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}">Neuen Arztbericht erstellen</button>
+                              </div>
+                              ${reports.length === 0 ? `<p class="muted">Noch keine Arztberichte gespeichert.</p>` : `
+                                <div class="list-stack">
+                                  ${reports.map(report => `
+                                    <div class="compact-card" style="padding:14px;">
+                                      <div class="row" style="justify-content:space-between; align-items:center; gap:10px; margin-bottom:8px;">
+                                        <div>
+                                          <div style="font-weight:700;">${escapeHtml(formatIsoDateShort(report.createdAt))}</div>
+                                          <div class="compact-meta">Zuletzt geändert: ${escapeHtml(formatIsoDateShort(report.updatedAt || report.createdAt))}</div>
+                                        </div>
+                                        <button class="openDoctorReportBtn secondary" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}" data-report-id="${report.reportId}">Öffnen</button>
+                                      </div>
+                                    </div>
+                                  `).join('')}
+                                </div>
+                              `}
+                            </div>
+                          </details>
+                        `;
+                      }).join('')}
+                    </div>
+                  `}
                 </div>
 
                 <div id="patient-stammdaten-${patient.patientId}" class="patient-inline-section" style="display:none;">
@@ -2107,6 +2488,57 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
     };
   });
 
+  document.querySelectorAll('.createDoctorReportBtn').forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        let createdReportId = '';
+        mutateRuntimeData((data) => {
+          const currentHome = getHomeById(data, homeId);
+          const currentPatient = getPatientById(currentHome, btn.dataset.patientId);
+          const rezept = getRezeptById(currentPatient, btn.dataset.rezeptId);
+          if (!currentPatient || !rezept) throw new Error('Rezept nicht gefunden');
+          const reports = ensureDoctorReportsState(rezept);
+          const now = new Date().toISOString();
+          createdReportId = `report_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          reports.unshift({
+            reportId: createdReportId,
+            content: buildDoctorReportTemplate({
+              patient: { ...currentPatient, homeName: currentHome?.name || '' },
+              rezept
+            }),
+            createdAt: now,
+            updatedAt: now
+          });
+        });
+        await queuePersistRuntimeData();
+        showDoctorReportEditorView({
+          onLock,
+          homeId,
+          patientId: btn.dataset.patientId,
+          rezeptId: btn.dataset.rezeptId,
+          reportId: createdReportId,
+          searchText
+        });
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || 'Arztbericht konnte nicht erstellt werden.');
+      }
+    };
+  });
+
+  document.querySelectorAll('.openDoctorReportBtn').forEach((btn) => {
+    btn.onclick = () => {
+      showDoctorReportEditorView({
+        onLock,
+        homeId,
+        patientId: btn.dataset.patientId,
+        rezeptId: btn.dataset.rezeptId,
+        reportId: btn.dataset.reportId,
+        searchText
+      });
+    };
+  });
+
   document.querySelectorAll('.savePatientDataBtn').forEach((btn) => {
     btn.onclick = async () => {
       const patientId = btn.dataset.patientId;
@@ -2131,6 +2563,134 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
       }
     };
   });
+}
+
+
+export function showDoctorReportEditorView({ onLock, homeId, patientId, rezeptId, reportId, searchText = "" }) {
+  bindLockButton(onLock);
+  setCurrentView("doctor-report-editor", { homeId, patientId, rezeptId, reportId, searchText });
+
+  const runtimeData = getRuntimeData();
+  const home = getHomeById(runtimeData, homeId);
+  const patient = getPatientById(home, patientId);
+  const rezept = getRezeptById(patient, rezeptId);
+  const report = ensureDoctorReportsState(rezept).find((item) => item.reportId === reportId);
+
+  if (!home || !patient || !rezept || !report) {
+    showHomeDetailView({ onLock, homeId, searchText });
+    return;
+  }
+
+  const patientName = `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || 'Patient/in';
+
+  render(`
+    <div class="card">
+      <h2>Arztbericht</h2>
+      <p class="muted">Patient: ${escapeHtml(patientName)} · Rezept: ${escapeHtml(rezeptSummary(rezept))}</p>
+      <button id="backDoctorReportBtn" class="secondary">Zurück zur Patientenübersicht</button>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:12px;">
+        <div>
+          <div><strong>Erstellt:</strong> ${escapeHtml(formatIsoDateShort(report.createdAt))}</div>
+          <div class="muted">Zuletzt geändert: ${escapeHtml(formatIsoDateShort(report.updatedAt || report.createdAt))}</div>
+        </div>
+        <div class="muted" style="text-align:right;">Arzt: ${escapeHtml(rezept.arzt || '—')}<br>Verordnung vom ${escapeHtml(rezept.ausstell || '—')}</div>
+      </div>
+
+      <label for="doctorReportEditorText">Arztbericht</label>
+      <div class="compact-card" style="margin-bottom:14px; padding:16px;">
+        <textarea id="doctorReportEditorText" rows="22" style="width:100%; border:none; outline:none; resize:vertical; background:transparent; font:inherit; color:inherit; min-height:560px; line-height:1.5;">${escapeHtml(report.content || '')}</textarea>
+      </div>
+
+      <div class="row" style="margin-bottom:8px; flex-wrap:wrap;">
+        <button id="saveDoctorReportEditorBtn">Speichern</button>
+        <button id="printDoctorReportEditorBtn" class="secondary">Drucken</button>
+        <button id="deleteDoctorReportEditorBtn" class="secondary">Löschen</button>
+      </div>
+      <div id="doctorReportEditorMsg"></div>
+    </div>
+  `);
+
+  document.getElementById('backDoctorReportBtn').onclick = () => {
+    showHomeDetailView({ onLock, homeId, searchText });
+  };
+
+  document.getElementById('saveDoctorReportEditorBtn').onclick = async () => {
+    const msg = document.getElementById('doctorReportEditorMsg');
+    msg.className = 'error';
+    msg.textContent = '';
+
+    try {
+      const content = document.getElementById('doctorReportEditorText').value.trim();
+      if (!content) {
+        msg.textContent = 'Bitte einen Berichtstext eingeben.';
+        return;
+      }
+
+      mutateRuntimeData((data) => {
+        const currentHome = getHomeById(data, homeId);
+        const currentPatient = getPatientById(currentHome, patientId);
+        const currentRezept = getRezeptById(currentPatient, rezeptId);
+        const currentReport = ensureDoctorReportsState(currentRezept).find((item) => item.reportId === reportId);
+        if (!currentReport) throw new Error('Bericht nicht gefunden');
+        currentReport.content = content;
+        currentReport.updatedAt = new Date().toISOString();
+      });
+      await queuePersistRuntimeData();
+      msg.className = 'success';
+      msg.textContent = 'Arztbericht gespeichert.';
+      showDoctorReportEditorView({ onLock, homeId, patientId, rezeptId, reportId, searchText });
+    } catch (err) {
+      console.error(err);
+      msg.textContent = 'Arztbericht konnte nicht gespeichert werden.';
+    }
+  };
+
+  document.getElementById('printDoctorReportEditorBtn').onclick = () => {
+    try {
+      const currentHome = getHomeById(getRuntimeData(), homeId);
+      const currentPatient = getPatientById(currentHome, patientId);
+      const currentRezept = getRezeptById(currentPatient, rezeptId);
+      const currentReport = ensureDoctorReportsState(currentRezept).find((item) => item.reportId === reportId);
+      if (!currentHome || !currentPatient || !currentRezept || !currentReport) throw new Error('Bericht nicht gefunden');
+      const previewReport = {
+        ...currentReport,
+        content: document.getElementById('doctorReportEditorText').value.trim() || currentReport.content || ''
+      };
+      openLetterPreview(
+        `Arztbericht ${currentPatient.lastName || ''}`.trim(),
+        renderDoctorReportPrintHtml({
+          settings: getRuntimeData()?.settings || {},
+          patient: { ...currentPatient, homeName: currentHome?.name || '' },
+          rezept: currentRezept,
+          report: previewReport
+        })
+      );
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || 'Arztbericht konnte nicht gedruckt werden.');
+    }
+  };
+
+  document.getElementById('deleteDoctorReportEditorBtn').onclick = async () => {
+    if (!confirm('Diesen Arztbericht wirklich löschen?')) return;
+    try {
+      mutateRuntimeData((data) => {
+        const currentHome = getHomeById(data, homeId);
+        const currentPatient = getPatientById(currentHome, patientId);
+        const currentRezept = getRezeptById(currentPatient, rezeptId);
+        const reports = ensureDoctorReportsState(currentRezept);
+        currentRezept.doctorReports = reports.filter((item) => item.reportId !== reportId);
+      });
+      await queuePersistRuntimeData();
+      showHomeDetailView({ onLock, homeId, searchText });
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || 'Arztbericht konnte nicht gelöscht werden.');
+    }
+  };
 }
 
 export function showPatientDetailView({ onLock, homeId, patientId }) {
@@ -2448,7 +3008,6 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
         <p><strong>Leistungen:</strong> ${escapeHtml(rezeptSummary(rezept))}</p>
         <p><strong>Arzt:</strong> ${escapeHtml(rezept.arzt || "—")}</p>
         <p><strong>Ausstellungsdatum:</strong> ${escapeHtml(rezept.ausstell || "—")}</p>
-        <p><strong>Status:</strong> ${escapeHtml(rezept.status || "Aktiv")}</p>
         <p><strong>BG:</strong> ${rezept.bg ? "Ja" : "Nein"}</p>
         <p><strong>Doppeltermin:</strong> ${rezept.dt ? "Ja" : "Nein"}</p>
         <p><strong>Zeit gesamt:</strong> ${escapeHtml(formatMinutesLabel(timeSummary.totalMinutes))}</p>
@@ -2495,7 +3054,10 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
             <p><strong>${escapeHtml(entry.date || "Ohne Datum")}</strong></p>
             <p>${escapeHtml(entry.text || "")}</p>
             <p class="muted">Automatische Zeit: ${escapeHtml(formatMinutesLabel(entry.autoTimeMinutes || 0))}</p>
-            <button class="editEntryBtn secondary" data-entry-id="${entry.entryId}">Eintrag bearbeiten</button>
+            <div class="row" style="margin-top:10px;">
+              <button class="editEntryBtn secondary" data-entry-id="${entry.entryId}">Eintrag bearbeiten</button>
+              <button class="deleteEntryBtn danger" data-entry-id="${entry.entryId}">Eintrag löschen</button>
+            </div>
           </div>
         `).join("")}
       </div>
@@ -2584,6 +3146,22 @@ ${pendingKm.fromLabel} → ${pendingKm.toLabel}`, "");
         rezeptId,
         entryId: btn.dataset.entryId
       });
+    };
+  });
+
+  document.querySelectorAll(".deleteEntryBtn").forEach((btn) => {
+    btn.onclick = async () => {
+      const ok = window.confirm("Dokumentationseintrag wirklich löschen?");
+      if (!ok) return;
+
+      try {
+        deleteRezeptEntry(homeId, patientId, rezeptId, btn.dataset.entryId);
+        await queuePersistRuntimeData();
+        showRezeptDetailView({ onLock, homeId, patientId, rezeptId });
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "Dokumentationseintrag konnte nicht gelöscht werden.");
+      }
     };
   });
 
@@ -2963,7 +3541,7 @@ export function showNachbestellungView({ onLock, doctorFilter = "", textFilter =
         </datalist>
 
         <label for="nachbestellTextFilter">Zusätzliche Suche</label>
-        <input id="nachbestellTextFilter" type="text" value="${escapeHtml(textFilter)}" placeholder="Patient, Heim, Status, Text">
+        <input id="nachbestellTextFilter" type="text" value="${escapeHtml(textFilter)}" placeholder="Patient, Heim, Text">
 
         <div class="row">
           <button id="runDoctorFilterBtn" class="secondary">Filtern</button>
@@ -3496,6 +4074,17 @@ export function resumeCurrentView({ onLock }) {
       patientId: context.patientId,
       rezeptId: context.rezeptId,
       entryId: context.entryId
+    });
+  }
+
+  if (view === "doctor-report-editor") {
+    return showDoctorReportEditorView({
+      onLock,
+      homeId: context.homeId,
+      patientId: context.patientId,
+      rezeptId: context.rezeptId,
+      reportId: context.reportId,
+      searchText: context.searchText || ""
     });
   }
 

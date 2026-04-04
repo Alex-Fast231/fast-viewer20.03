@@ -194,7 +194,17 @@ function normalizeRezeptForMigration(rezept) {
     ),
     items,
     entries: ensureArrayValue(source.entries).map(normalizeEntryForMigration),
-    timeEntries: ensureArrayValue(source.timeEntries).map(normalizeTimeEntryForMigration)
+    timeEntries: ensureArrayValue(source.timeEntries).map(normalizeTimeEntryForMigration),
+    doctorReports: ensureArrayValue(source.doctorReports).map((item) => {
+      const report = clonePlainObject(item);
+      return {
+        ...report,
+        reportId: ensureStringValue(report.reportId || report.id) || generateMigrationId("report"),
+        content: ensureStringValue(report.content || report.text),
+        createdAt: ensureStringValue(report.createdAt) || new Date().toISOString(),
+        updatedAt: ensureStringValue(report.updatedAt) || ensureStringValue(report.createdAt) || new Date().toISOString()
+      };
+    })
   };
 }
 
@@ -269,6 +279,17 @@ function normalizeAbsenceForMigration(item) {
     to: normalizeLegacyDateValue(source.to || source.bis)
   };
 }
+
+function normalizeSpecialDayForMigration(item) {
+  const source = clonePlainObject(item);
+  return {
+    ...source,
+    id: ensureStringValue(source.id) || generateMigrationId("specialday"),
+    type: "holiday",
+    date: normalizeLegacyDateValue(source.date || source.datum)
+  };
+}
+
 
 function integrateLegacyFlatCollections(result) {
   const homes = ensureArrayValue(result.homes);
@@ -374,7 +395,8 @@ export function migrateBackupData(data, fromVersion) {
     verordnungen: ensureArrayValue(source.verordnungen).map(normalizeRezeptForMigration),
     zeit: isPlainObject(source.zeit) ? { ...source.zeit } : { timeEntries: [] },
     kilometer: isPlainObject(source.kilometer) ? { ...source.kilometer } : { entries: [] },
-    abwesenheiten: ensureArrayValue(source.abwesenheiten).map(normalizeAbsenceForMigration)
+    abwesenheiten: ensureArrayValue(source.abwesenheiten).map(normalizeAbsenceForMigration),
+    specialDays: ensureArrayValue(source.specialDays).map(normalizeSpecialDayForMigration)
   };
 
   result.zeit.timeEntries = ensureArrayValue(result.zeit.timeEntries).map(normalizeTimeEntryForMigration);
@@ -424,13 +446,13 @@ export function buildBackupMeta(runtimeData) {
     appVersion: APP_VERSION,
     viewerCompatible: true,
     exportTimestamp: new Date().toISOString(),
-    therapistId: normalized.settings?.therapistId || "",
     therapistName: normalized.settings?.therapistName || "",
     therapistFax: normalized.settings?.therapistFax || "",
     practicePhone: normalized.settings?.practicePhone || "",
     workDays: Array.isArray(normalized.settings?.workDays) ? normalized.settings.workDays : [],
     weeklyHours: normalized.settings?.weeklyHours || "",
     absenceCount: Array.isArray(normalized.abwesenheiten) ? normalized.abwesenheiten.length : 0,
+    specialDayCount: Array.isArray(normalized.specialDays) ? normalized.specialDays.length : 0,
     counts
   };
 }
@@ -507,10 +529,6 @@ export function validateBackupMeta(meta) {
 
   if (typeof meta.therapistName !== "string") {
     throw new Error("meta.json enthält keinen gültigen Therapeutennamen");
-  }
-
-  if (meta.therapistId != null && typeof meta.therapistId !== "string") {
-    throw new Error("meta.json enthält eine ungültige therapistId");
   }
 
   return meta;
@@ -592,7 +610,6 @@ function validateBackupCompatibility({ encryptedAppData, cryptoMeta, meta }) {
 
     const normalizedMeta = finalizeAppStructure({
       settings: {
-        therapistId: typeof meta.therapistId === "string" ? meta.therapistId : "",
         therapistName: meta.therapistName || "",
         practicePhone: meta.practicePhone || "",
         therapistFax: meta.therapistFax || "",

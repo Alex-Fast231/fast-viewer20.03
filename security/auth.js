@@ -110,27 +110,3 @@ export async function verifyPracticePassword({ password, cryptoMeta }) {
     return false;
   }
 }
-
-export async function updateSecurityCredentials({ runtimeKey, currentCryptoMeta, pin }) {
-  if (!runtimeKey) {
-    throw new Error("Runtime-Key fehlt");
-  }
-
-  const nextPin = String(pin || "").trim();
-
-  if (!nextPin || nextPin.length < 6) {
-    throw new Error("Die Workflow-PIN muss mindestens 6 Zeichen haben.");
-  }
-
-  const pinSaltBytes = generateSalt(16);
-  const wrappedByPIN = await wrapDataKeyWithPIN(runtimeKey, nextPin, pinSaltBytes);
-
-  const cryptoMeta = {
-    ...currentCryptoMeta,
-    pinSaltBase64: toBase64(pinSaltBytes),
-    wrappedDataKeyByPIN: wrappedByPIN
-  };
-
-  await saveCryptoMeta(cryptoMeta);
-  return cryptoMeta;
-}

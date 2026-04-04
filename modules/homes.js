@@ -2,17 +2,6 @@ import { getRuntimeData, mutateRuntimeData } from "../core/app-core.js";
 import { compareDeDates, isDateInRange } from "../core/date-utils.js";
 import { generateId, getRezeptAusstellungsdatum } from "../core/utils.js";
 
-export const REZEPT_STATUS_OPTIONS = [
-  "Aktiv",
-  "Pausiert",
-  "Abgeschlossen",
-  "Abgegeben"
-];
-
-function normalizeStatus(status) {
-  const value = String(status || "").trim();
-  return REZEPT_STATUS_OPTIONS.includes(value) ? value : "Aktiv";
-}
 function normalizeTimeType(type) {
   return ["behandlung", "dokumentation", "besprechung", "manuell"].includes(String(type || "").trim())
     ? String(type || "").trim()
@@ -503,6 +492,52 @@ export function updateHomeAddress(homeId, adresse) {
   });
 }
 
+export function deleteHome(homeId) {
+  mutateRuntimeData((data) => {
+    const home = getHomeById(data, homeId);
+    if (!home) throw new Error("Heim nicht gefunden");
+
+    const patientIds = new Set((home.patients || []).map((patient) => String(patient?.patientId || "")).filter(Boolean));
+    const entryIds = new Set();
+
+    (home.patients || []).forEach((patient) => {
+      (patient.rezepte || []).forEach((rezept) => {
+        (rezept.entries || []).forEach((entry) => {
+          const id = String(entry?.entryId || "").trim();
+          if (id) entryIds.add(id);
+        });
+      });
+    });
+
+    ensureKilometerState(data);
+    data.kilometer.travelLog = (data.kilometer.travelLog || []).filter((item) => {
+      const relatedEntryId = String(item?.relatedEntryId || "").trim();
+      const fromPointId = String(item?.fromPointId || "").trim();
+      const toPointId = String(item?.toPointId || "").trim();
+
+      if (relatedEntryId && entryIds.has(relatedEntryId)) return false;
+      if (fromPointId === `home:${homeId}` || toPointId === `home:${homeId}`) return false;
+      if ([fromPointId, toPointId].some((pointId) => pointId.startsWith('hb:') && patientIds.has(pointId.slice(3)))) return false;
+      return true;
+    });
+
+    data.kilometer.knownRoutes = (data.kilometer.knownRoutes || []).filter((route) => {
+      const fromPointId = String(route?.fromPointId || "").trim();
+      const toPointId = String(route?.toPointId || "").trim();
+      if (fromPointId === `home:${homeId}` || toPointId === `home:${homeId}`) return false;
+      if ([fromPointId, toPointId].some((pointId) => pointId.startsWith('hb:') && patientIds.has(pointId.slice(3)))) return false;
+      return true;
+    });
+
+    const beforeLength = (data.homes || []).length;
+    data.homes = (data.homes || []).filter((item) => item.homeId !== homeId);
+
+    if (data.homes.length === beforeLength) {
+      throw new Error("Heim nicht gefunden");
+    }
+  });
+}
+
 export function getHomeById(data, homeId) {
   return (data.homes || []).find((home) => home.homeId === homeId) || null;
 }
@@ -569,7 +604,6 @@ export function createRezept(homeId, patientId, payload) {
       rezeptId: generateId("rezept"),
       arzt: (payload.arzt || "").trim(),
       ausstell: (payload.ausstell || "").trim(),
-      status: normalizeStatus(payload.status),
       bg: !!payload.bg,
       dt: !!payload.dt,
       items,
@@ -584,7 +618,8 @@ export function createRezept(homeId, patientId, payload) {
         viewerLabel: "",
         lastExportAt: ""
       },
-      timeEntries: []
+      timeEntries: [],
+      doctorReports: []
     });
   });
 }
@@ -610,7 +645,6 @@ export function updateRezept(homeId, patientId, rezeptId, payload) {
 
     rezept.arzt = (payload.arzt || "").trim();
     rezept.ausstell = (payload.ausstell || "").trim();
-    rezept.status = normalizeStatus(payload.status);
     rezept.bg = !!payload.bg;
     rezept.dt = !!payload.dt;
     rezept.items = items;
@@ -629,6 +663,10 @@ export function updateRezept(homeId, patientId, rezeptId, payload) {
         viewerLabel: "",
         lastExportAt: ""
       };
+    }
+
+    if (!Array.isArray(rezept.doctorReports)) {
+      rezept.doctorReports = [];
     }
 
     ensureRezeptTimeState(rezept);
@@ -762,6 +800,39 @@ export function updateRezeptEntry(homeId, patientId, rezeptId, entryId, payload)
   });
 }
 
+export function deleteRezeptEntry(homeId, patientId, rezeptId, entryId) {
+  mutateRuntimeData((data) => {
+    const home = getHomeById(data, homeId);
+    if (!home) throw new Error("Heim nicht gefunden");
+
+    const patient = getPatientById(home, patientId);
+    if (!patient) throw new Error("Patient nicht gefunden");
+
+    const rezept = getRezeptById(patient, rezeptId);
+    if (!rezept) throw new Error("Rezept nicht gefunden");
+
+    ensureRezeptTimeState(rezept);
+
+    const entry = (rezept.entries || []).find((item) => item.entryId === entryId);
+    if (!entry) throw new Error("Eintrag nicht gefunden");
+
+    rezept.entries = (rezept.entries || []).filter((item) => item.entryId !== entryId);
+
+    if (entry.linkedTimeEntryId) {
+      rezept.timeEntries = (rezept.timeEntries || []).filter((item) => item.timeEntryId !== entry.linkedTimeEntryId);
+    }
+
+    ensureKilometerState(data);
+    data.kilometer.travelLog = (data.kilometer.travelLog || []).filter((item) => String(item?.relatedEntryId || "") !== entryId);
+
+    const lastTimeEntry = (rezept.timeEntries || [])
+      .slice()
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))[0];
+
+    rezept.zeitMeta.lastTimeEntryAt = lastTimeEntry?.createdAt || "";
+  });
+}
+
 export function rezeptSummary(rezept) {
   const items = rezept?.items || [];
   const parts = items.map((item) => {
@@ -791,6 +862,16 @@ export function searchPatientsInHome(home, query) {
   });
 }
 
+function comparePatientsByLastName(a, b) {
+  const last = String(a?.patientLastName || "").localeCompare(String(b?.patientLastName || ""), "de");
+  if (last !== 0) return last;
+  const first = String(a?.patientFirstName || "").localeCompare(String(b?.patientFirstName || ""), "de");
+  if (first !== 0) return first;
+  const displayA = String(a?.patient || a?.patientName || "");
+  const displayB = String(b?.patient || b?.patientName || "");
+  return displayA.localeCompare(displayB, "de");
+}
+
 function buildAbgabeLeistungText(rezept) {
   const parts = (rezept?.items || []).map((item) => {
     if (!item) return "";
@@ -818,7 +899,6 @@ export function buildAbgabeRows(data) {
           leistung: buildAbgabeLeistungText(rezept),
           anzahl: "",
           menge: "",
-          status: rezept.status || "",
           arzt: rezept.arzt || rezept.doctor || "",
           befreit: !!patient.befreit,
           bg: !!rezept.bg,
@@ -854,7 +934,6 @@ export function filterAbgabeRows(rows, query) {
       row.ausstell,
       row.leistung,
       row.anzahl,
-      row.status,
       row.arzt
     ].join(" ").toLowerCase();
 
@@ -932,7 +1011,7 @@ export function buildNachbestellLetterData(data, rows) {
           ...patient,
           rezepte: patient.rezepte.sort((a, b) => String(a.text || '').localeCompare(String(b.text || ''), 'de'))
         }))
-        .sort((a, b) => String(a.patientName || '').localeCompare(String(b.patientName || ''), 'de'))
+        .sort(comparePatientsByLastName)
     }))
     .sort((a, b) => {
       if (a.type !== b.type) return a.type === 'heim' ? -1 : 1;
@@ -978,6 +1057,7 @@ export function saveNachbestellHistorySnapshot(snapshot) {
   });
 }
 
+
 export function deleteNachbestellHistoryItem(historyId) {
   const targetId = String(historyId || '').trim();
   if (!targetId) return;
@@ -996,11 +1076,12 @@ export function buildNachbestellRows(data) {
           rowId: `${home.homeId}_${patient.patientId}_${rezept.rezeptId}`,
           doctor: rezept.arzt || "",
           patient: `${patient.firstName || ""} ${patient.lastName || ""}`.trim(),
+          patientFirstName: patient.firstName || "",
+          patientLastName: patient.lastName || "",
           geb: patient.birthDate || "",
           heim: home.name || "",
           text: rezeptSummary(rezept),
           ausstell: getRezeptAusstellungsdatum(rezept),
-          status: rezept.status || "",
           rezeptId: rezept.rezeptId,
           patientId: patient.patientId,
           homeId: home.homeId
@@ -1009,7 +1090,13 @@ export function buildNachbestellRows(data) {
     });
   });
 
-  return rows;
+  return rows.sort((a, b) => {
+    const patientCompare = comparePatientsByLastName(a, b);
+    if (patientCompare !== 0) return patientCompare;
+    const homeCompare = String(a.heim || "").localeCompare(String(b.heim || ""), "de");
+    if (homeCompare !== 0) return homeCompare;
+    return String(a.text || "").localeCompare(String(b.text || ""), "de");
+  });
 }
 
 export function filterNachbestellRows(rows, doctorQuery, textQuery = "") {
@@ -1023,8 +1110,7 @@ export function filterNachbestellRows(rows, doctorQuery, textQuery = "") {
       row.patient,
       row.geb,
       row.heim,
-      row.text,
-      row.status
+      row.text
     ].join(" ").toLowerCase().includes(tq);
 
     return doctorOk && textOk;
@@ -1111,7 +1197,6 @@ export function buildAbgabeTree(data) {
         rezepte.push({
           rowId: `${home.homeId}_${patient.patientId}_${rezept.rezeptId}`,
           rezeptId: rezept.rezeptId,
-          status: rezept.status || "",
           arzt: rezept.arzt || rezept.doctor || "",
           ausstell: rezept.ausstell || "",
           bg: !!rezept.bg,
@@ -1171,6 +1256,8 @@ export function buildNachbestellTree(data, doctorFilter = "", textFilter = "") {
     if (!doctorGroup.patients.has(patientKey)) {
       doctorGroup.patients.set(patientKey, {
         patient: row.patient || "",
+        patientFirstName: row.patientFirstName || "",
+        patientLastName: row.patientLastName || "",
         geb: row.geb || "",
         heim: row.heim || "",
         rows: []
@@ -1183,9 +1270,7 @@ export function buildNachbestellTree(data, doctorFilter = "", textFilter = "") {
   return Array.from(map.values())
     .map((group) => ({
       doctor: group.doctor,
-      patients: Array.from(group.patients.values()).sort((a, b) =>
-        String(a.patient).localeCompare(String(b.patient), "de")
-      )
+      patients: Array.from(group.patients.values()).sort(comparePatientsByLastName)
     }))
     .sort((a, b) => String(a.doctor).localeCompare(String(b.doctor), "de"));
 }
