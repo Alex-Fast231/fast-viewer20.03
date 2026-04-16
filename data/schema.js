@@ -1,5 +1,5 @@
-export const APP_SCHEMA_VERSION = 3;
-export const APP_VERSION = "3.0.0";
+export const APP_SCHEMA_VERSION = 4;
+export const APP_VERSION = "4.0.0";
 export const APP_MODULE = "doku";
 
 export const PRACTICE_ADDRESS = `Münchener Str. 155

@@ -192,6 +192,8 @@ function normalizeRezeptForMigration(rezept) {
       || source.datum
       || source.verordnungsdatum
     ),
+    abgegeben: source.abgegeben === true,
+    abgegebenAt: ensureStringValue(source.abgegebenAt),
     items,
     entries: ensureArrayValue(source.entries).map(normalizeEntryForMigration),
     timeEntries: ensureArrayValue(source.timeEntries).map(normalizeTimeEntryForMigration),
