@@ -2427,9 +2427,7 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
     btn.onclick = async () => {
       const patientId = btn.dataset.patientId;
       const rezeptId = btn.dataset.rezeptId;
-      const ok = window.confirm("Dieses Rezept als abgegeben markieren?
-
-Es verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.");
+      const ok = window.confirm(`Dieses Rezept als abgegeben markieren?\n\nEs verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.`);
       if (!ok) return;
 
       try {
@@ -2830,9 +2828,7 @@ export function showPatientDetailView({ onLock, homeId, patientId }) {
 
   document.querySelectorAll(".markRezeptAbgegebenBtn").forEach((btn) => {
     btn.onclick = async () => {
-      const ok = window.confirm("Dieses Rezept als abgegeben markieren?
-
-Es verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.");
+      const ok = window.confirm(`Dieses Rezept als abgegeben markieren?\n\nEs verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.`);
       if (!ok) return;
 
       try {
@@ -3015,9 +3011,7 @@ export function showEditRezeptView({ onLock, homeId, patientId, rezeptId }) {
   const markRezeptAbgegebenBtn = document.getElementById("markRezeptAbgegebenBtn");
   if (markRezeptAbgegebenBtn) {
     markRezeptAbgegebenBtn.onclick = async () => {
-      const ok = window.confirm("Dieses Rezept als abgegeben markieren?
-
-Es verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.");
+      const ok = window.confirm(`Dieses Rezept als abgegeben markieren?\n\nEs verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.`);
       if (!ok) return;
 
       try {
@@ -3174,9 +3168,7 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
   const markRezeptAbgegebenBtn = document.getElementById("markRezeptAbgegebenBtn");
   if (markRezeptAbgegebenBtn) {
     markRezeptAbgegebenBtn.onclick = async () => {
-      const ok = window.confirm("Dieses Rezept als abgegeben markieren?
-
-Es verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.");
+      const ok = window.confirm(`Dieses Rezept als abgegeben markieren?\n\nEs verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku vollständig erhalten.`);
       if (!ok) return;
 
       try {
