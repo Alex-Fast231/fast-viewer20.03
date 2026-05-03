@@ -53,6 +53,11 @@ function ensureWeeklyHours(value) {
   return "";
 }
 
+function ensureIntegerNumber(value, fallback = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? Math.round(numberValue) : fallback;
+}
+
 function normalizeEntry(entry) {
   const now = new Date().toISOString();
   const item = entry && typeof entry === "object" ? entry : {};
@@ -335,6 +340,7 @@ export function finalizeAppStructure(data) {
       practiceAddress: ensureString(settings.practiceAddress, PRACTICE_ADDRESS),
       workDays: ensureWorkDays(settings.workDays),
       weeklyHours: ensureWeeklyHours(settings.weeklyHours),
+      stundenStartsaldoMinuten: ensureIntegerNumber(settings.stundenStartsaldoMinuten, 0),
       privacyMode: ["full", "privacy"].includes(settings.privacyMode) ? settings.privacyMode : "full",
       createdAt: ensureIsoString(settings.createdAt, now),
       updatedAt: ensureIsoString(settings.updatedAt, now) || now
