@@ -2223,7 +2223,11 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
                 </div>
 
                 <div id="patient-schnelldoku-${patient.patientId}" class="patient-inline-section" style="display:none; margin-bottom:12px;">
-                  <div class="compact-meta" style="margin-bottom:10px;">Datum wird automatisch gesetzt: ${escapeHtml(formatCurrentDateShort())}</div>
+                  <div class="compact-card" style="margin-bottom:10px;">
+                    <label for="quickDocDate-${patient.patientId}">Behandlungsdatum</label>
+                    <input id="quickDocDate-${patient.patientId}" class="quickDocDateInput" type="text" value="${escapeHtml(formatCurrentDateShort())}" placeholder="TT.MM.JJJJ" inputmode="numeric">
+                    <div class="compact-meta" style="margin-top:6px;">Dieses Datum gilt für die SchnellDoku und die automatische Zeitbuchung.</div>
+                  </div>
                   ${quickDocRezepte.length === 0 ? `<p class="muted">Keine Rezepte für SchnellDoku vorhanden.</p>` : quickDocRezepte.length === 1 ? `
                     <div class="compact-card" style="margin-bottom:10px;">
                       <div style="font-weight:600; margin-bottom:6px;">Zielrezept vom: ${escapeHtml(quickDocRezepte[0].ausstell || "—")}</div>
@@ -2415,6 +2419,8 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
     };
   });
 
+  document.querySelectorAll('.quickDocDateInput').forEach((input) => bindDateAutoFormat(input));
+
   document.querySelectorAll('.quickDocRezeptCheck').forEach((check) => {
     check.addEventListener('change', () => {
       if (!check.checked) return;
@@ -2454,7 +2460,12 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
       }
 
       try {
-        const quickDate = formatCurrentDateShort();
+        const dateInput = document.getElementById(`quickDocDate-${patientId}`);
+        const quickDate = normalizeDeDateInput(dateInput?.value || '') || formatCurrentDateShort();
+        if (!parseDeDate(quickDate)) {
+          msg.textContent = 'Bitte ein gültiges Behandlungsdatum im Format TT.MM.JJJJ eingeben.';
+          return;
+        }
         const pendingKm = getPendingKilometerContext(homeId, patientId, quickDate);
         if (pendingKm.needsKmInput) {
           const entered = window.prompt(`Bitte Entfernung eingeben:
