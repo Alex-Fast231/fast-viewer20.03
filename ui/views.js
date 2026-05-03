@@ -59,7 +59,8 @@ import {
   addManualKilometerTravel,
   updateKilometerTravel,
   deleteKilometerTravel,
-  getKilometerPeriodSummary
+  getKilometerPeriodSummary,
+  finalizeKilometerExport
 } from "../modules/homes.js";
 import { getRezeptFristInfo } from "../modules/fristen.js";
 import { exportBackup, importBackup, downloadBlob, validateBackupZip } from "../modules/backup.js";
@@ -3870,7 +3871,7 @@ export function showKilometerView({ onLock, summaryFrom = "", summaryTo = "", ed
           <div class="compact-card">
             <div style="font-weight:600;">${escapeHtml(item.date || "Ohne Datum")} · ${escapeHtml(formatKm(item.km || 0))}</div>
             <div class="compact-meta">${escapeHtml(item.fromLabel || "—")} → ${escapeHtml(item.toLabel || "—")}</div>
-            <div class="compact-meta">Typ: ${item.source === "auto" ? "Automatisch" : "Manuell"}${item.manualAdjusted ? ' · manuell korrigiert' : ''}</div>
+            <div class="compact-meta">Typ: ${item.source === "auto" ? "Automatisch" : "Manuell"}${item.manualAdjusted ? ' · manuell korrigiert' : ''}${item.abgerechnet ? ` · abgerechnet am ${escapeHtml(item.abgerechnetAm || "—")}` : ''}</div>
             ${item.note ? `<div class="compact-meta">${escapeHtml(item.note)}</div>` : ""}
             <div class="row" style="margin-top:10px;">
               <button class="secondary editTravelBtn" data-travel-id="${escapeHtml(item.travelId || "")}">Fahrt bearbeiten</button>
@@ -3920,9 +3921,10 @@ export function showKilometerView({ onLock, summaryFrom = "", summaryTo = "", ed
           <div class="compact-meta">Gesamtkilometer: ${escapeHtml(formatKm(summary.totalKm))}</div>
           <div class="compact-meta">Vergütung: ${escapeHtml(formatEuro(summary.totalAmount))}</div>
           <div class="compact-meta">Zeitraum: ${escapeHtml(summary.fromDate || "—")} bis ${escapeHtml(summary.toDate || "—")}</div>
+          <div class="compact-meta">Es werden nur noch nicht abgerechnete Fahrten berücksichtigt.</div>
         </div>
 
-        ${summary.rows.length === 0 ? `<p class="muted" style="margin-top:10px;">Keine Fahrten im gewählten Zeitraum.</p>` : ""}
+        ${summary.rows.length === 0 ? `<p class="muted" style="margin-top:10px;">Keine offenen Fahrten im gewählten Zeitraum.</p>` : ""}
         ${summary.rows.map((item) => `
           <div class="compact-card">
             <div style="font-weight:600;">${escapeHtml(item.date || "Ohne Datum")} · ${escapeHtml(formatKm(item.km || 0))}</div>
@@ -3968,10 +3970,15 @@ export function showKilometerView({ onLock, summaryFrom = "", summaryTo = "", ed
     showKilometerView({ onLock, summaryFrom: fromValue, summaryTo: toValue });
   };
 
-  document.getElementById("printKmSummaryBtn").onclick = () => {
+  document.getElementById("printKmSummaryBtn").onclick = async () => {
     const fromValue = document.getElementById("kmSummaryFrom").value.trim();
     const toValue = document.getElementById("kmSummaryTo").value.trim();
     const currentSummary = getKilometerPeriodSummary(fromValue, toValue);
+
+    if (currentSummary.rows.length === 0) {
+      alert("Keine offenen Fahrten im gewählten Zeitraum.");
+      return;
+    }
 
     printHtml(
       "Kilometerzettel",
@@ -3989,6 +3996,15 @@ export function showKilometerView({ onLock, summaryFrom = "", summaryTo = "", ed
         `).join("")}
       `
     );
+
+    try {
+      finalizeKilometerExport(fromValue, toValue);
+      await queuePersistRuntimeData();
+      showKilometerView({ onLock, summaryFrom: fromValue, summaryTo: toValue });
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "Kilometerzettel konnte nicht abgeschlossen werden.");
+    }
   };
 
   document.getElementById("saveManualKmBtn").onclick = async () => {

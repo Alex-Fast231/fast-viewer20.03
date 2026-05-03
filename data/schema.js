@@ -50,7 +50,8 @@ export function createEmptyAppData() {
         address: ""
       },
       knownRoutes: [],
-      travelLog: []
+      travelLog: [],
+      kmExports: []
     },
 
     abwesenheiten: [],

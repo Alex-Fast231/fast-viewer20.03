@@ -119,6 +119,10 @@ function ensureKilometerState(data) {
     data.kilometer.travelLog = [];
   }
 
+  if (!Array.isArray(data.kilometer.kmExports)) {
+    data.kilometer.kmExports = [];
+  }
+
   return data.kilometer;
 }
 
@@ -352,7 +356,8 @@ export function getKilometerOverview() {
   return {
     startPoint: kilometerState.startPoint,
     knownRoutes: [...kilometerState.knownRoutes],
-    travelLog: [...kilometerState.travelLog]
+    travelLog: [...kilometerState.travelLog],
+    kmExports: [...kilometerState.kmExports]
   };
 }
 
@@ -457,6 +462,7 @@ export function getKilometerPeriodSummary(fromDate, toDate) {
   if (!data) throw new Error('Kein runtimeData Zustand vorhanden');
   const kilometerState = ensureKilometerState(data);
   const rows = (kilometerState.travelLog || [])
+    .filter((item) => item?.abgerechnet !== true)
     .filter((item) => isDateInRange(item.date, fromDate, toDate))
     .sort((a, b) => compareDeDates(a?.date, b?.date) || String(a?.createdAt || '').localeCompare(String(b?.createdAt || ''), 'de'));
 
@@ -470,6 +476,50 @@ export function getKilometerPeriodSummary(fromDate, toDate) {
     totalKm,
     totalAmount
   };
+}
+
+export function finalizeKilometerExport(fromDate, toDate) {
+  return mutateRuntimeData((data) => {
+    const kilometerState = ensureKilometerState(data);
+    const now = new Date().toISOString();
+    const exportId = generateId('kmexport');
+    const rows = (kilometerState.travelLog || [])
+      .filter((item) => item?.abgerechnet !== true)
+      .filter((item) => isDateInRange(item.date, fromDate, toDate))
+      .sort((a, b) => compareDeDates(a?.date, b?.date) || String(a?.createdAt || '').localeCompare(String(b?.createdAt || ''), 'de'));
+
+    if (rows.length === 0) {
+      throw new Error('Keine nicht abgerechneten Fahrten im gewählten Zeitraum.');
+    }
+
+    const totalKm = rows.reduce((sum, item) => sum + (Number(item.km) || 0), 0);
+    const totalAmount = totalKm * 0.3;
+    const firstDate = rows[0]?.date || String(fromDate || '').trim();
+    const lastDate = rows[rows.length - 1]?.date || String(toDate || '').trim();
+    const fahrtIds = rows.map((item) => String(item.travelId || '')).filter(Boolean);
+
+    rows.forEach((item) => {
+      item.abgerechnet = true;
+      item.abgerechnetAm = getTodayDateString();
+      item.kmExportId = exportId;
+      item.updatedAt = now;
+    });
+
+    const exportItem = {
+      id: exportId,
+      von: String(fromDate || '').trim() || firstDate,
+      bis: String(toDate || '').trim() || lastDate,
+      erstesFahrtdatum: firstDate,
+      letztesFahrtdatum: lastDate,
+      erstelltAm: now,
+      gesamtKm: totalKm,
+      gesamtVerguetung: totalAmount,
+      fahrtIds
+    };
+
+    kilometerState.kmExports.push(exportItem);
+    return exportItem;
+  });
 }
 
 

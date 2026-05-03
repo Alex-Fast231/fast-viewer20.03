@@ -241,7 +241,21 @@ function normalizeKilometerState(state) {
       note: ensureString(item?.note),
       createdAt: ensureIsoString(item?.createdAt, new Date().toISOString()),
       updatedAt: ensureIsoString(item?.updatedAt),
-      manualAdjusted: Boolean(item?.manualAdjusted)
+      manualAdjusted: Boolean(item?.manualAdjusted),
+      abgerechnet: item?.abgerechnet === true,
+      abgerechnetAm: ensureString(item?.abgerechnetAm),
+      kmExportId: ensureString(item?.kmExportId)
+    })),
+    kmExports: ensureArray(source.kmExports).map((item) => ({
+      id: ensureString(item?.id) || generateId("kmexport"),
+      von: ensureDeDateString(item?.von),
+      bis: ensureDeDateString(item?.bis),
+      erstesFahrtdatum: ensureDeDateString(item?.erstesFahrtdatum),
+      letztesFahrtdatum: ensureDeDateString(item?.letztesFahrtdatum),
+      erstelltAm: ensureIsoString(item?.erstelltAm, new Date().toISOString()),
+      gesamtKm: Number.isFinite(Number(item?.gesamtKm)) ? Number(item.gesamtKm) : 0,
+      gesamtVerguetung: Number.isFinite(Number(item?.gesamtVerguetung)) ? Number(item.gesamtVerguetung) : 0,
+      fahrtIds: ensureArray(item?.fahrtIds).map((id) => ensureString(id)).filter(Boolean)
     }))
   };
 }
