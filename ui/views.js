@@ -51,6 +51,7 @@ import {
   deleteRezeptTimeEntry,
   getRezeptTimeEntries,
   getRezeptTimeSummary,
+  getRezeptEntryAutoMinutes,
   getPendingKilometerContext,
   saveKilometerStartPoint,
   saveKnownKilometerRoute,
@@ -187,7 +188,7 @@ function collectAllTimeEntries(data) {
     (home?.patients || []).forEach((patient) => {
       const patientName = `${patient?.lastName || ""}, ${patient?.firstName || ""}`.replace(/^,\s*/, "").trim() || 'Ohne Namen';
       (patient?.rezepte || []).forEach((rezept) => {
-        (rezept?.timeEntries || []).forEach((entry) => {
+        getRezeptTimeEntries(rezept).forEach((entry) => {
           const minutes = Number(entry?.minutes || 0);
           if (!Number.isFinite(minutes) || minutes <= 0) return;
           rows.push({
@@ -403,7 +404,7 @@ function getDashboardTodayPatients(data, targetDate = formatCurrentDateShort()) 
           }
         });
 
-        (rezept?.timeEntries || []).forEach((entry) => {
+        getRezeptTimeEntries(rezept).forEach((entry) => {
           if (String(entry?.date || '').trim() !== normalizedDate) return;
           const minutes = Number(entry?.minutes || 0);
           if (Number.isFinite(minutes)) totalMinutesForDate += minutes;
@@ -3073,7 +3074,7 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
           <div class="card" style="margin-bottom:12px;padding:16px;">
             <p><strong>${escapeHtml(entry.date || "Ohne Datum")}</strong></p>
             <p>${escapeHtml(entry.text || "")}</p>
-            <p class="muted">Automatische Zeit: ${escapeHtml(formatMinutesLabel(entry.autoTimeMinutes || 0))}</p>
+            <p class="muted">Automatische Zeit: ${escapeHtml(formatMinutesLabel(getRezeptEntryAutoMinutes(rezept, entry)))}</p>
             <div class="row" style="margin-top:10px;">
               <button class="editEntryBtn secondary" data-entry-id="${entry.entryId}">Eintrag bearbeiten</button>
               <button class="deleteEntryBtn danger" data-entry-id="${entry.entryId}">Eintrag löschen</button>

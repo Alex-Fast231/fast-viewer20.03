@@ -54,6 +54,38 @@ function getAutomaticTreatmentMinutes(rezept) {
   return firstMinutes;
 }
 
+function getEffectiveRezeptTimeEntryMinutes(rezept, entry) {
+  const storedMinutes = Number(entry?.minutes || 0);
+  const fallbackMinutes = Number.isFinite(storedMinutes) && storedMinutes > 0 ? storedMinutes : 0;
+  const isAutomaticTreatmentEntry = String(entry?.type || "") === "behandlung" && String(entry?.sourceEntryId || "").trim();
+
+  if (!isAutomaticTreatmentEntry) {
+    return fallbackMinutes;
+  }
+
+  const currentRecipeMinutes = getAutomaticTreatmentMinutes(rezept);
+  return currentRecipeMinutes > 0 ? currentRecipeMinutes : fallbackMinutes;
+}
+
+export function getRezeptEntryAutoMinutes(rezept, entry) {
+  const linkedTimeEntryId = String(entry?.linkedTimeEntryId || "").trim();
+  const timeEntry = (rezept?.timeEntries || []).find((item) => String(item?.timeEntryId || "") === linkedTimeEntryId);
+
+  if (timeEntry) {
+    return getEffectiveRezeptTimeEntryMinutes(rezept, timeEntry);
+  }
+
+  const storedMinutes = Number(entry?.autoTimeMinutes || 0);
+  const fallbackMinutes = Number.isFinite(storedMinutes) && storedMinutes > 0 ? storedMinutes : 0;
+
+  if (String(entry?.entryId || "").trim()) {
+    const currentRecipeMinutes = getAutomaticTreatmentMinutes(rezept);
+    return currentRecipeMinutes > 0 ? currentRecipeMinutes : fallbackMinutes;
+  }
+
+  return fallbackMinutes;
+}
+
 function createTimeEntryObject(payload = {}) {
   const now = new Date().toISOString();
   const minutes = Number(payload.minutes);
@@ -1407,14 +1439,19 @@ export function deleteRezeptTimeEntry(homeId, patientId, rezeptId, timeEntryId) 
 }
 
 export function getRezeptTimeEntries(rezept) {
-  return [...(rezept?.timeEntries || [])].sort((a, b) =>
-    compareDeDates(String(b?.date || ""), String(a?.date || ""))
-    || String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""), "de")
-  );
+  return [...(rezept?.timeEntries || [])]
+    .map((entry) => ({
+      ...entry,
+      minutes: getEffectiveRezeptTimeEntryMinutes(rezept, entry)
+    }))
+    .sort((a, b) =>
+      compareDeDates(String(b?.date || ""), String(a?.date || ""))
+      || String(b?.createdAt || "").localeCompare(String(a?.createdAt || ""), "de")
+    );
 }
 
 export function getRezeptTimeSummary(rezept) {
-  const entries = rezept?.timeEntries || [];
+  const entries = getRezeptTimeEntries(rezept);
   const totalMinutes = entries.reduce((sum, item) => sum + (Number(item.minutes) || 0), 0);
   const totalEntries = entries.length;
   return { totalMinutes, totalEntries };
