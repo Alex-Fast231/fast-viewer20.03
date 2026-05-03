@@ -193,6 +193,7 @@ function normalizeRezeptForMigration(rezept) {
       || source.verordnungsdatum
     ),
     items,
+    abgegeben: !!source.abgegeben,
     entries: ensureArrayValue(source.entries).map(normalizeEntryForMigration),
     timeEntries: ensureArrayValue(source.timeEntries).map(normalizeTimeEntryForMigration),
     doctorReports: ensureArrayValue(source.doctorReports).map((item) => {

@@ -25,6 +25,7 @@ import {
   deleteHome,
   createRezept,
   updateRezept,
+  markRezeptAbgegeben,
   deleteRezept,
   createRezeptEntry,
   updateRezeptEntry,
@@ -2162,6 +2163,7 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
         ${filteredPatients.length === 0 ? `<p class="muted">Keine passenden Patienten gefunden.</p>` : ""}
         ${filteredPatients.map(patient => {
           const rezepte = sortRezepteForDisplay(patient.rezepte || []);
+          const quickDocRezepte = rezepte.filter((rezept) => rezept.abgegeben !== true);
           return `
             <details class="accordion">
               <summary>
@@ -2222,16 +2224,16 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
 
                 <div id="patient-schnelldoku-${patient.patientId}" class="patient-inline-section" style="display:none; margin-bottom:12px;">
                   <div class="compact-meta" style="margin-bottom:10px;">Datum wird automatisch gesetzt: ${escapeHtml(formatCurrentDateShort())}</div>
-                  ${rezepte.length === 0 ? `<p class="muted">Keine Rezepte für SchnellDoku vorhanden.</p>` : rezepte.length === 1 ? `
+                  ${quickDocRezepte.length === 0 ? `<p class="muted">Keine Rezepte für SchnellDoku vorhanden.</p>` : quickDocRezepte.length === 1 ? `
                     <div class="compact-card" style="margin-bottom:10px;">
-                      <div style="font-weight:600; margin-bottom:6px;">Zielrezept vom: ${escapeHtml(rezepte[0].ausstell || "—")}</div>
-                      <div class="compact-meta">${escapeHtml(rezeptSummary(rezepte[0]))}</div>
+                      <div style="font-weight:600; margin-bottom:6px;">Zielrezept vom: ${escapeHtml(quickDocRezepte[0].ausstell || "—")}</div>
+                      <div class="compact-meta">${escapeHtml(rezeptSummary(quickDocRezepte[0]))}</div>
                     </div>
                   ` : `
                     <div class="compact-card" style="margin-bottom:10px;">
                       <div style="font-weight:600; margin-bottom:6px;">Zielrezept auswählen</div>
                       <div class="list-stack">
-                        ${rezepte.map(rezept => `
+                        ${quickDocRezepte.map(rezept => `
                           <label class="check-chip quick-doc-chip" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}" style="flex:1 1 auto;">
                             <input class="quickDocRezeptCheck" type="checkbox" data-patient-id="${patient.patientId}" data-rezept-id="${rezept.rezeptId}">
                             <span>
@@ -2248,7 +2250,7 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
                   <div class="compact-card" style="margin-bottom:10px; padding:14px;">
                     <textarea id="quickDocText-${patient.patientId}" rows="4" placeholder="Dokumentation direkt zum Rezept speichern" style="width:100%; border:none; outline:none; resize:vertical; background:transparent; font:inherit; color:inherit; min-height:96px;"></textarea>
                   </div>
-                  <button class="saveQuickDocBtn" data-patient-id="${patient.patientId}" ${rezepte.length===0?'disabled':''}>SchnellDoku speichern</button>
+                  <button class="saveQuickDocBtn" data-patient-id="${patient.patientId}" ${quickDocRezepte.length===0?'disabled':''}>SchnellDoku speichern</button>
                   <div id="quickDocMsg-${patient.patientId}"></div>
                 </div>
 
@@ -2427,7 +2429,7 @@ export function showHomeDetailView({ onLock, homeId, searchText = "" }) {
     btn.onclick = async () => {
       const patientId = btn.dataset.patientId;
       const patient = getPatientById(home, patientId);
-      const rezepte = sortRezepteForDisplay(patient?.rezepte || []);
+      const rezepte = sortRezepteForDisplay(patient?.rezepte || []).filter((rezept) => rezept.abgegeben !== true);
       const msg = document.getElementById(`quickDocMsg-${patientId}`);
       const text = document.getElementById(`quickDocText-${patientId}`).value.trim();
 
@@ -3010,6 +3012,7 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
         <p><strong>Ausstellungsdatum:</strong> ${escapeHtml(rezept.ausstell || "—")}</p>
         <p><strong>BG:</strong> ${rezept.bg ? "Ja" : "Nein"}</p>
         <p><strong>Doppeltermin:</strong> ${rezept.dt ? "Ja" : "Nein"}</p>
+        <p><strong>Abgegeben:</strong> ${rezept.abgegeben === true ? "Ja" : "Nein"}</p>
         <p><strong>Zeit gesamt:</strong> ${escapeHtml(formatMinutesLabel(timeSummary.totalMinutes))}</p>
         <p><strong>Zeit-Einträge:</strong> ${timeSummary.totalEntries}</p>
       </div>
@@ -3027,6 +3030,11 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
         <p><strong>Gültig bis:</strong> ${escapeHtml(frist.validUntilText || "—")}</p>
       </div>
     </details>
+
+    <div class="card">
+      <h3>Rezeptstatus</h3>
+      ${rezept.abgegeben === true ? `<p class="muted">Dieses Rezept ist als abgegeben markiert und erscheint nicht mehr in der SchnellDoku.</p><button id="markRezeptAbgegebenBtn" class="secondary" disabled>Abgegeben ✓</button>` : `<p class="muted">Als abgegeben markierte Rezepte bleiben hier vollständig erhalten, verschwinden aber aus der SchnellDoku.</p><button id="markRezeptAbgegebenBtn" class="secondary">Rezept als abgegeben markieren</button>`}
+    </div>
 
     <div class="card">
       <h3>Dokumentation zu diesem Rezept</h3>
@@ -3089,6 +3097,23 @@ export function showRezeptDetailView({ onLock, homeId, patientId, rezeptId }) {
   document.getElementById("backPatientBtn").onclick = () => {
     showPatientDetailView({ onLock, homeId, patientId });
   };
+
+  const markRezeptAbgegebenBtn = document.getElementById("markRezeptAbgegebenBtn");
+  if (markRezeptAbgegebenBtn && rezept.abgegeben !== true) {
+    markRezeptAbgegebenBtn.onclick = async () => {
+      const ok = window.confirm("Dieses Rezept als abgegeben markieren?\n\nEs verschwindet danach aus der SchnellDoku, bleibt aber in der großen Doku erhalten.");
+      if (!ok) return;
+
+      try {
+        markRezeptAbgegeben(homeId, patientId, rezeptId);
+        await queuePersistRuntimeData();
+        showRezeptDetailView({ onLock, homeId, patientId, rezeptId });
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "Rezept konnte nicht als abgegeben markiert werden.");
+      }
+    };
+  }
 
   bindDateAutoFormat(document.getElementById("entryDate"));
 
