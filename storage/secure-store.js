@@ -1,4 +1,3 @@
-
 import { getRecord, putRecord, deleteRecord } from "./indexeddb.js";
 import { createDefaultSecurityState, normalizeSecurityState } from "../security/lock.js";
 

@@ -606,8 +606,6 @@ export function createRezept(homeId, patientId, payload) {
       ausstell: (payload.ausstell || "").trim(),
       bg: !!payload.bg,
       dt: !!payload.dt,
-      abgegeben: false,
-      abgegebenAt: "",
       items,
       entries: [],
       zeitMeta: {
@@ -649,12 +647,6 @@ export function updateRezept(homeId, patientId, rezeptId, payload) {
     rezept.ausstell = (payload.ausstell || "").trim();
     rezept.bg = !!payload.bg;
     rezept.dt = !!payload.dt;
-    if (typeof rezept.abgegeben !== "boolean") {
-      rezept.abgegeben = false;
-    }
-    if (typeof rezept.abgegebenAt !== "string") {
-      rezept.abgegebenAt = "";
-    }
     rezept.items = items;
 
     if (!rezept.zeitMeta || typeof rezept.zeitMeta !== "object") {
@@ -678,22 +670,6 @@ export function updateRezept(homeId, patientId, rezeptId, payload) {
     }
 
     ensureRezeptTimeState(rezept);
-  });
-}
-
-export function markRezeptAsAbgegeben(homeId, patientId, rezeptId) {
-  mutateRuntimeData((data) => {
-    const home = getHomeById(data, homeId);
-    if (!home) throw new Error("Heim nicht gefunden");
-
-    const patient = getPatientById(home, patientId);
-    if (!patient) throw new Error("Patient nicht gefunden");
-
-    const rezept = getRezeptById(patient, rezeptId);
-    if (!rezept) throw new Error("Rezept nicht gefunden");
-
-    rezept.abgegeben = true;
-    rezept.abgegebenAt = new Date().toISOString();
   });
 }
 
