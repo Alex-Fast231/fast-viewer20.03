@@ -1578,16 +1578,18 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
           <label for="dashboardTimeSummaryTo">Bis</label>
           <input id="dashboardTimeSummaryTo" type="text" value="${escapeHtml(timeSummaryTo)}" placeholder="TT.MM.JJJJ" inputmode="numeric">
 
-          <div class="row">
-            <button id="openUrlaubBtn" class="secondary">Urlaub</button>
-            <button id="openKrankBtn" class="secondary">Krank</button>
-            <button id="openHolidayBtn" class="secondary">Feiertage</button>
+          <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; margin-top:16px;">
+            <button id="openUrlaubBtn" class="secondary" style="margin-top:0;">Urlaub</button>
+            <button id="openKrankBtn" class="secondary" style="margin-top:0;">Krank</button>
+            <button id="openHolidayBtn" class="secondary" style="margin-top:0;">Feiertage</button>
           </div>
-          <div class="row">
-            <button id="openAbgleichBtn" class="secondary">Stunden abgleichen</button>
-            <button id="runDashboardTimeSummaryBtn">Auswertung anzeigen</button>
+          <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:12px;">
+            <button id="openAbgleichBtn" class="secondary" style="margin-top:0;">Stundenabgleich</button>
+            <button id="runDashboardTimeSummaryBtn" style="margin-top:0;">Auswertung anzeigen</button>
           </div>
-          <button id="printTimeOverviewBtn" class="secondary">Drucken</button>
+          <div style="display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px;">
+            <button id="printTimeOverviewBtn" class="secondary" style="margin-top:0;">Drucken</button>
+          </div>
 
           <div id="dashboardAbsenceFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showAbsenceForm ? 'block' : 'none'};">
             <div style="font-weight:600; margin-bottom:10px;">${showAbsenceForm === 'krank' ? 'Krank eintragen' : 'Urlaub eintragen'}</div>
