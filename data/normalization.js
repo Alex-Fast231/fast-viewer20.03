@@ -340,6 +340,7 @@ export function finalizeAppStructure(data) {
       practiceAddress: ensureString(settings.practiceAddress, PRACTICE_ADDRESS),
       workDays: ensureWorkDays(settings.workDays),
       weeklyHours: ensureWeeklyHours(settings.weeklyHours),
+      fastStartDatum: ensureString(settings.fastStartDatum),
       stundenStartsaldoMinuten: ensureIntegerNumber(settings.stundenStartsaldoMinuten, 0),
       privacyMode: ["full", "privacy"].includes(settings.privacyMode) ? settings.privacyMode : "full",
       createdAt: ensureIsoString(settings.createdAt, now),

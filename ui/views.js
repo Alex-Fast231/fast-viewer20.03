@@ -172,6 +172,22 @@ function getStundenStartsaldoMinutes(settings) {
   return Number.isFinite(value) ? Math.round(value) : 0;
 }
 
+function getFastStartDatumComparable(settings) {
+  const value = String(settings?.fastStartDatum || '').trim();
+  if (!value) return '';
+  return parseComparableDate(value) ? value : (parseDeDate(value) || '');
+}
+
+function getEffectiveTimeSummaryFromDate(fromDate, fastStartComparable) {
+  const requestedFrom = parseDeDate(fromDate);
+  if (requestedFrom && fastStartComparable) {
+    return formatDeDate(requestedFrom > fastStartComparable ? requestedFrom : fastStartComparable);
+  }
+  if (requestedFrom) return formatDeDate(requestedFrom);
+  if (fastStartComparable) return formatDeDate(fastStartComparable);
+  return String(fromDate || '').trim();
+}
+
 function formatComparableToDe(value) {
   return formatDeDate(value);
 }
@@ -244,21 +260,28 @@ function collectAllTimeEntries(data) {
 
 function getTotalTrackedMinutes(data, targetDate = "") {
   const normalizedDate = String(targetDate || '').trim();
+  const fastStartComparable = getFastStartDatumComparable(data?.settings);
   return collectAllTimeEntries(data)
     .filter((entry) => !normalizedDate || entry.date === normalizedDate)
+    .filter((entry) => {
+      const entryComparable = parseDeDate(entry.date);
+      return !fastStartComparable || !entryComparable || entryComparable >= fastStartComparable;
+    })
     .reduce((sum, entry) => sum + entry.minutes, 0);
 }
 
 function getTimePeriodSummary(data, fromDate, toDate) {
+  const fastStartComparable = getFastStartDatumComparable(data?.settings);
+  const effectiveFromDate = getEffectiveTimeSummaryFromDate(fromDate, fastStartComparable);
   const rows = collectAllTimeEntries(data)
-    .filter((entry) => isDateInRange(entry.date, fromDate, toDate));
+    .filter((entry) => isDateInRange(entry.date, effectiveFromDate, toDate));
 
   const totalsByDate = new Map();
   rows.forEach((entry) => {
     totalsByDate.set(entry.date, (totalsByDate.get(entry.date) || 0) + entry.minutes);
   });
 
-  const periodDates = listComparableDatesInRange(fromDate, toDate);
+  const periodDates = listComparableDatesInRange(effectiveFromDate, toDate);
   const workDays = Array.isArray(data?.settings?.workDays) ? data.settings.workDays : [];
   const dailyPlannedMinutes = getDailyPlannedMinutes(data?.settings);
 
@@ -291,7 +314,7 @@ function getTimePeriodSummary(data, fromDate, toDate) {
   const absenceRows = getAbsenceRows(data).filter((item) => {
     const from = parseDeDate(item?.from);
     const to = parseDeDate(item?.to);
-    const filterFrom = parseDeDate(fromDate);
+    const filterFrom = parseDeDate(effectiveFromDate);
     const filterTo = parseDeDate(toDate);
     if (!from || !to) return false;
     if (filterFrom && to < filterFrom) return false;
@@ -301,7 +324,7 @@ function getTimePeriodSummary(data, fromDate, toDate) {
 
   const specialDayRows = getSpecialDayRows(data).filter((item) => {
     const date = parseDeDate(item?.date);
-    const filterFrom = parseDeDate(fromDate);
+    const filterFrom = parseDeDate(effectiveFromDate);
     const filterTo = parseDeDate(toDate);
     if (!date) return false;
     if (filterFrom && date < filterFrom) return false;
@@ -311,7 +334,9 @@ function getTimePeriodSummary(data, fromDate, toDate) {
 
   return {
     fromDate: String(fromDate || '').trim(),
+    effectiveFromDate,
     toDate: String(toDate || '').trim(),
+    fastStartDatum: fastStartComparable ? formatDeDate(fastStartComparable) : '',
     totalMinutes,
     plannedMinutes,
     appSaldoMinutes,
@@ -364,6 +389,7 @@ function buildTimeOverviewPrintMarkup({ therapistName, summary }) {
     <div class="print-section">
       <div><strong>Therapeut:</strong> ${escapeHtml(therapistName || '—')}</div>
       <div><strong>Zeitraum:</strong> ${escapeHtml(summary.fromDate || '—')} bis ${escapeHtml(summary.toDate || '—')}</div>
+      <div><strong>FaSt-Startdatum:</strong> ${escapeHtml(summary.fastStartDatum || '—')}</div>
     </div>
 
     <div class="print-section">
@@ -372,9 +398,9 @@ function buildTimeOverviewPrintMarkup({ therapistName, summary }) {
         <tbody>
           <tr><th>Soll-Zeit</th><td>${escapeHtml(formatHoursClockLabel(summary.plannedMinutes))}</td></tr>
           <tr><th>Ist-Zeit</th><td>${escapeHtml(formatHoursClockLabel(summary.totalMinutes))}</td></tr>
-          <tr><th>Startsaldo</th><td>${escapeHtml(getSignedMinutesLabel(summary.stundenStartsaldoMinuten))}</td></tr>
-          <tr><th>Saldo App-Zeitraum</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.appSaldoMinutes)))} ${summary.appSaldoMinutes > 0 ? 'Plus' : summary.appSaldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
-          <tr><th>Saldo gesamt</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.saldoMinutes)))} ${summary.saldoMinutes > 0 ? 'Plus' : summary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
+          <tr><th>Startsaldo vor App/FaSt</th><td>${escapeHtml(getSignedMinutesLabel(summary.stundenStartsaldoMinuten))}</td></tr>
+          <tr><th>Seit Start erfasst</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.appSaldoMinutes)))} ${summary.appSaldoMinutes > 0 ? 'Plus' : summary.appSaldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
+          <tr><th>Gesamt</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.saldoMinutes)))} ${summary.saldoMinutes > 0 ? 'Plus' : summary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
         </tbody>
       </table>
     </div>
@@ -1168,6 +1194,10 @@ export function showSetupView({ onSuccess }) {
       <label for="weeklyHours">Arbeitsstunden pro Woche</label>
       <input id="weeklyHours" type="text" inputmode="decimal" autocomplete="off" placeholder="z. B. 20 oder 38.5">
 
+      <label for="fastStartDatum">Startdatum bei FaSt</label>
+      <input id="fastStartDatum" type="text" inputmode="numeric" autocomplete="off" placeholder="TT.MM.JJJJ">
+      <p class="muted">Ab diesem Datum werden Zeiten aus der App fürs Stundenkonto berücksichtigt.</p>
+
       <label for="stundenStartsaldo">Startsaldo Stundenkonto</label>
       <input id="stundenStartsaldo" type="text" inputmode="numeric" autocomplete="off" placeholder="z. B. +40:00 oder -12:30">
       <p class="muted">Plus-/Minusstunden vor App-Einführung. Wird zum Stundenkonto addiert.</p>
@@ -1189,6 +1219,7 @@ export function showSetupView({ onSuccess }) {
   `);
 
   bindCheckChipToggles(app);
+  bindDateAutoFormat(document.getElementById("fastStartDatum"));
 
   document.getElementById("restoreBackupBtn").onclick = () => {
     document.getElementById("restoreBackupInput").click();
@@ -1215,6 +1246,8 @@ export function showSetupView({ onSuccess }) {
     const therapistFax = document.getElementById("therapistFax").value.trim();
     const workDays = WORK_DAY_OPTIONS.filter((day) => document.getElementById(`setupWorkDay-${day}`)?.checked);
     const weeklyHours = normalizeWeeklyHoursInput(document.getElementById("weeklyHours").value);
+    const fastStartDatumInput = document.getElementById("fastStartDatum").value.trim();
+    const fastStartDatum = fastStartDatumInput ? parseDeDate(fastStartDatumInput) : "";
     const stundenStartsaldoMinuten = parseStundenStartsaldoInput(document.getElementById("stundenStartsaldo").value);
     const password = document.getElementById("practicePassword").value;
     const pin = document.getElementById("workflowPin").value;
@@ -1226,6 +1259,11 @@ export function showSetupView({ onSuccess }) {
 
     if (!isValidWeeklyHours(weeklyHours)) {
       msg.textContent = "Die Arbeitsstunden pro Woche müssen als Zahl eingegeben werden, z. B. 20 oder 38.5.";
+      return;
+    }
+
+    if (fastStartDatumInput && !fastStartDatum) {
+      msg.textContent = "Das Startdatum bei FaSt muss im Format TT.MM.JJJJ eingegeben werden.";
       return;
     }
 
@@ -1257,6 +1295,7 @@ export function showSetupView({ onSuccess }) {
       initialAppData.settings.therapistFax = therapistFax;
       initialAppData.settings.workDays = workDays;
       initialAppData.settings.weeklyHours = weeklyHours;
+      initialAppData.settings.fastStartDatum = fastStartDatum;
       initialAppData.settings.stundenStartsaldoMinuten = stundenStartsaldoMinuten;
 
       const session = await setupSecurity({
@@ -1408,6 +1447,10 @@ export function showSettingsView({ onLock }) {
       <label for="settingsWeeklyHours">Arbeitsstunden pro Woche</label>
       <input id="settingsWeeklyHours" type="text" inputmode="decimal" autocomplete="off" value="${escapeHtml(settings.weeklyHours || "")}" placeholder="z. B. 20 oder 38.5">
 
+      <label for="settingsFastStartDatum">Startdatum bei FaSt</label>
+      <input id="settingsFastStartDatum" type="text" inputmode="numeric" autocomplete="off" value="${escapeHtml(formatDeDate(getFastStartDatumComparable(settings)))}" placeholder="TT.MM.JJJJ">
+      <p class="muted">Ab diesem Datum werden Zeiten aus der App fürs Stundenkonto berücksichtigt.</p>
+
       <label for="settingsStundenStartsaldo">Startsaldo Stundenkonto</label>
       <input id="settingsStundenStartsaldo" type="text" inputmode="numeric" autocomplete="off" value="${escapeHtml(getSignedMinutesLabel(getStundenStartsaldoMinutes(settings)).replace(' Stunden', ''))}" placeholder="z. B. +40:00 oder -12:30">
       <p class="muted">Plus-/Minusstunden vor App-Einführung. Wird zum Stundenkonto addiert.</p>
@@ -1418,6 +1461,7 @@ export function showSettingsView({ onLock }) {
   `);
 
   bindCheckChipToggles(app);
+  bindDateAutoFormat(document.getElementById("settingsFastStartDatum"));
 
   document.getElementById("backDashboardFromSettingsBtn").onclick = () => {
     showDashboardView({ onLock });
@@ -1430,6 +1474,8 @@ export function showSettingsView({ onLock }) {
     const therapistFax = document.getElementById("settingsTherapistFax").value.trim();
     const workDays = WORK_DAY_OPTIONS.filter((day) => document.getElementById(`settingsWorkDay-${day}`)?.checked);
     const weeklyHours = normalizeWeeklyHoursInput(document.getElementById("settingsWeeklyHours").value);
+    const fastStartDatumInput = document.getElementById("settingsFastStartDatum").value.trim();
+    const fastStartDatum = fastStartDatumInput ? parseDeDate(fastStartDatumInput) : "";
     const stundenStartsaldoMinuten = parseStundenStartsaldoInput(document.getElementById("settingsStundenStartsaldo").value);
     const msg = document.getElementById("settingsMessage");
 
@@ -1438,6 +1484,11 @@ export function showSettingsView({ onLock }) {
 
     if (!isValidWeeklyHours(weeklyHours)) {
       msg.textContent = "Die Arbeitsstunden pro Woche müssen als Zahl eingegeben werden, z. B. 20 oder 38.5.";
+      return;
+    }
+
+    if (fastStartDatumInput && !fastStartDatum) {
+      msg.textContent = "Das Startdatum bei FaSt muss im Format TT.MM.JJJJ eingegeben werden.";
       return;
     }
 
@@ -1454,6 +1505,7 @@ export function showSettingsView({ onLock }) {
         data.settings.therapistFax = therapistFax;
         data.settings.workDays = workDays;
         data.settings.weeklyHours = weeklyHours;
+        data.settings.fastStartDatum = fastStartDatum;
         data.settings.stundenStartsaldoMinuten = stundenStartsaldoMinuten;
         data.settings.updatedAt = new Date().toISOString();
       });
@@ -1553,11 +1605,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
 
           <div class="compact-card" style="margin-top:12px; padding:12px;">
             <div style="font-size:18px; font-weight:700; margin-bottom:6px;">Zeitsaldo</div>
+            <div class="compact-meta">Startdatum: ${escapeHtml(timePeriodSummary.fastStartDatum || '—')}</div>
+            <div class="compact-meta">Startsaldo vor App/FaSt: ${escapeHtml(getSignedMinutesLabel(timePeriodSummary.stundenStartsaldoMinuten))}</div>
+            <div class="compact-meta">Seit Start erfasst: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.appSaldoMinutes)))} ${timePeriodSummary.appSaldoMinutes > 0 ? 'Plus' : timePeriodSummary.appSaldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
+            <div class="compact-meta">Gesamt: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.saldoMinutes)))} ${timePeriodSummary.saldoMinutes > 0 ? 'Plus' : timePeriodSummary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
             <div class="compact-meta">Geleistete Zeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.totalMinutes))}</div>
             <div class="compact-meta">Sollzeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.plannedMinutes))}</div>
-            <div class="compact-meta">Startsaldo: ${escapeHtml(getSignedMinutesLabel(timePeriodSummary.stundenStartsaldoMinuten))}</div>
-            <div class="compact-meta">Saldo App-Zeitraum: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.appSaldoMinutes)))} ${timePeriodSummary.appSaldoMinutes > 0 ? 'Plus' : timePeriodSummary.appSaldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
-            <div class="compact-meta">Saldo gesamt: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.saldoMinutes)))} ${timePeriodSummary.saldoMinutes > 0 ? 'Plus' : timePeriodSummary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
             <div class="compact-meta">Zeitraum: ${escapeHtml(timePeriodSummary.fromDate || '—')} bis ${escapeHtml(timePeriodSummary.toDate || '—')}</div>
           </div>
 

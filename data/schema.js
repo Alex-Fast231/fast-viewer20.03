@@ -23,6 +23,7 @@ export function createEmptyAppData() {
       practiceAddress: PRACTICE_ADDRESS,
       workDays: [],
       weeklyHours: "",
+      fastStartDatum: "",
       stundenStartsaldoMinuten: 0,
       privacyMode: "full",
       createdAt: now,
