@@ -1582,12 +1582,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <button id="openUrlaubBtn" class="secondary">Urlaub</button>
             <button id="openKrankBtn" class="secondary">Krank</button>
             <button id="openHolidayBtn" class="secondary">Feiertage</button>
-            <button id="openAbgleichBtn" class="secondary">Stunden abgleichen</button>
           </div>
           <div class="row">
+            <button id="openAbgleichBtn" class="secondary">Stunden abgleichen</button>
             <button id="runDashboardTimeSummaryBtn">Auswertung anzeigen</button>
-            <button id="printTimeOverviewBtn" class="secondary">Drucken</button>
           </div>
+          <button id="printTimeOverviewBtn" class="secondary">Drucken</button>
 
           <div id="dashboardAbsenceFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showAbsenceForm ? 'block' : 'none'};">
             <div style="font-weight:600; margin-bottom:10px;">${showAbsenceForm === 'krank' ? 'Krank eintragen' : 'Urlaub eintragen'}</div>
