@@ -504,6 +504,37 @@ function getDashboardTodayPatients(data, targetDate = formatCurrentDateShort()) 
   return rows.sort((a,b)=>collatorDE.compare(a.patientName,b.patientName));
 }
 
+function getDocumentationOverviewRows(data, targetDate = "") {
+  const normalizedDate = normalizeDeDateInput(String(targetDate || '').trim()) || String(targetDate || '').trim();
+  if (!normalizedDate || !parseDeDate(normalizedDate)) return [];
+
+  const rows = [];
+  (data?.homes || []).forEach((home) => {
+    (home?.patients || []).forEach((patient) => {
+      const entries = [];
+      (patient?.rezepte || []).forEach((rezept) => {
+        (rezept?.entries || []).forEach((entry) => {
+          if (String(entry?.date || '').trim() !== normalizedDate) return;
+          entries.push({
+            rezeptLabel: rezeptSummary(rezept),
+            text: entry?.text || ''
+          });
+        });
+      });
+
+      if (entries.length > 0) {
+        rows.push({
+          patientName: `${patient?.lastName || ""}, ${patient?.firstName || ""}`.replace(/^,\s*/, "").trim() || 'Ohne Namen',
+          homeName: home?.name || '',
+          entries
+        });
+      }
+    });
+  });
+
+  return rows.sort((a, b) => collatorDE.compare(a.patientName, b.patientName));
+}
+
 function getAllRezeptOptions(data) {
   const rows = [];
   (data?.homes || []).forEach((home) => {
@@ -1536,7 +1567,7 @@ export function showSettingsView({ onLock }) {
   };
 }
 
-export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "", showHolidayForm = false, showAbgleichForm = false } = {}) {
+export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "", showHolidayForm = false, showAbgleichForm = false, showDokuOverview = false, dokuOverviewDate = "" } = {}) {
   bindLockButton(onLock);
   setCurrentView("dashboard");
 
@@ -1552,11 +1583,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const absenceRows = timePeriodSummary.absenceRows;
   const specialDayRows = timePeriodSummary.specialDayRows;
   const stundenAbgleichRows = timePeriodSummary.stundenAbgleichRows || [];
+  const dokuOverviewRows = getDocumentationOverviewRows(runtimeData, dokuOverviewDate);
 
   render(`
     ${renderDashboardHeaderCard({ therapistName })}
 
-    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm || showHolidayForm || showAbgleichForm ? 'open' : ''}>
+    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm || showHolidayForm || showAbgleichForm || showDokuOverview || dokuOverviewDate ? 'open' : ''}>
       <summary>
         <span>Überblick</span>
         <span class="muted">Stunden</span>
@@ -1570,7 +1602,7 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
         <div class="row" style="margin-top:10px;">
           <button id="toggleDashboardTimeOverviewBtn" class="secondary">Zeitübersicht</button>
         </div>
-        <div id="dashboardTimeOverviewPanel" class="compact-card" style="margin-top:10px; display:${showTimeOverview || hasTimeSummaryFilter || showAbgleichForm ? 'block' : 'none'};">
+        <div id="dashboardTimeOverviewPanel" class="compact-card" style="margin-top:10px; display:${showTimeOverview || hasTimeSummaryFilter || showAbgleichForm || showDokuOverview || dokuOverviewDate ? 'block' : 'none'};">
           <div style="font-weight:700; margin-bottom:10px;">Zeitübersicht</div>
           <label for="dashboardTimeSummaryFrom">Von</label>
           <input id="dashboardTimeSummaryFrom" type="text" value="${escapeHtml(timeSummaryFrom)}" placeholder="TT.MM.JJJJ" inputmode="numeric">
@@ -1587,8 +1619,36 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <button id="openAbgleichBtn" class="secondary" style="margin-top:0;">Stundenabgleich</button>
             <button id="runDashboardTimeSummaryBtn" style="margin-top:0;">Auswertung anzeigen</button>
           </div>
-          <div style="display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px;">
+          <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:12px;">
+            <button id="openDokuOverviewBtn" class="secondary" style="margin-top:0;">Doku-Übersicht</button>
             <button id="printTimeOverviewBtn" class="secondary" style="margin-top:0;">Drucken</button>
+          </div>
+
+          <div id="dashboardDokuOverviewPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showDokuOverview || dokuOverviewDate ? 'block' : 'none'};">
+            <div style="font-weight:600; margin-bottom:10px;">Doku-Übersicht nach Datum</div>
+            <label for="dashboardDokuOverviewDate">Datum</label>
+            <input id="dashboardDokuOverviewDate" type="text" value="${escapeHtml(dokuOverviewDate)}" placeholder="TT.MM.JJJJ" inputmode="numeric">
+            <div class="row">
+              <button id="runDokuOverviewBtn">Anzeigen</button>
+              <button id="clearDokuOverviewBtn" class="secondary">Leeren</button>
+            </div>
+            <div id="dashboardDokuOverviewMsg"></div>
+            <div class="list-stack" style="margin-top:12px;">
+              ${!dokuOverviewDate ? `<p class="muted" style="margin:0;">Bitte Datum auswählen.</p>` : dokuOverviewRows.length === 0 ? `<p class="muted" style="margin:0;">Keine Dokumentationen für dieses Datum gefunden.</p>` : dokuOverviewRows.map((row) => `
+                <div class="compact-card" style="margin:0; padding:12px;">
+                  <div style="font-weight:700; font-size:16px; margin-bottom:4px;">${escapeHtml(row.patientName)}</div>
+                  <div class="compact-meta" style="margin-bottom:8px;">${escapeHtml(row.homeName || '—')}</div>
+                  <div class="list-stack">
+                    ${row.entries.map((entry) => `
+                      <div class="compact-card" style="margin:0; padding:10px;">
+                        <div class="compact-meta" style="margin-bottom:4px;">${escapeHtml(entry.rezeptLabel || 'Rezept')}</div>
+                        <div>${escapeHtml(entry.text || '—')}</div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
           </div>
 
           <div id="dashboardAbsenceFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showAbsenceForm ? 'block' : 'none'};">
@@ -1814,12 +1874,14 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const dashboardAbsenceTo = document.getElementById("dashboardAbsenceTo");
   const dashboardHolidayDate = document.getElementById("dashboardHolidayDate");
   const dashboardAbgleichDatum = document.getElementById("dashboardAbgleichDatum");
+  const dashboardDokuOverviewDate = document.getElementById("dashboardDokuOverviewDate");
   if (dashboardTimeSummaryFrom) bindDateAutoFormat(dashboardTimeSummaryFrom);
   if (dashboardTimeSummaryTo) bindDateAutoFormat(dashboardTimeSummaryTo);
   if (dashboardAbsenceFrom) bindDateAutoFormat(dashboardAbsenceFrom);
   if (dashboardAbsenceTo) bindDateAutoFormat(dashboardAbsenceTo);
   if (dashboardHolidayDate) bindDateAutoFormat(dashboardHolidayDate);
   if (dashboardAbgleichDatum) bindDateAutoFormat(dashboardAbgleichDatum);
+  if (dashboardDokuOverviewDate) bindDateAutoFormat(dashboardDokuOverviewDate);
 
   const toggleDashboardTimeOverviewBtn = document.getElementById("toggleDashboardTimeOverviewBtn");
   if (toggleDashboardTimeOverviewBtn) {
@@ -1878,6 +1940,44 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
       const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
       const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
       showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showAbgleichForm: true });
+    };
+  }
+
+  const openDokuOverviewBtn = document.getElementById("openDokuOverviewBtn");
+  if (openDokuOverviewBtn) {
+    openDokuOverviewBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      const dateValue = document.getElementById("dashboardDokuOverviewDate")?.value?.trim() || dokuOverviewDate || formatCurrentDateShort();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showDokuOverview: true, dokuOverviewDate: dateValue });
+    };
+  }
+
+  const runDokuOverviewBtn = document.getElementById("runDokuOverviewBtn");
+  if (runDokuOverviewBtn) {
+    runDokuOverviewBtn.onclick = () => {
+      const msg = document.getElementById("dashboardDokuOverviewMsg");
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      const rawDate = document.getElementById("dashboardDokuOverviewDate").value.trim();
+      const dateValue = normalizeDeDateInput(rawDate) || rawDate;
+      if (!parseDeDate(dateValue)) {
+        if (msg) {
+          msg.className = "error";
+          msg.textContent = "Bitte ein gültiges Datum eingeben.";
+        }
+        return;
+      }
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showDokuOverview: true, dokuOverviewDate: dateValue });
+    };
+  }
+
+  const clearDokuOverviewBtn = document.getElementById("clearDokuOverviewBtn");
+  if (clearDokuOverviewBtn) {
+    clearDokuOverviewBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showDokuOverview: true, dokuOverviewDate: "" });
     };
   }
 
