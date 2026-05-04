@@ -58,6 +58,7 @@ export function createEmptyAppData() {
 
     abwesenheiten: [],
     specialDays: [],
+    stundenAbgleiche: [],
 
     abgabeHistory: [],
     nachbestellHistory: [],

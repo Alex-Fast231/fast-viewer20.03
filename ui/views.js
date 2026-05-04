@@ -215,6 +215,14 @@ function getSpecialDayRows(data) {
   return Array.isArray(data?.specialDays) ? data.specialDays : [];
 }
 
+function getStundenAbgleichRows(data) {
+  return Array.isArray(data?.stundenAbgleiche) ? data.stundenAbgleiche : [];
+}
+
+function getStundenAbgleichTypLabel(typ) {
+  return typ === "frei" ? "Überstundenfrei" : "Auszahlung";
+}
+
 function isComparableDateWithinAbsence(comparableDate, absence) {
   const from = parseDeDate(absence?.from);
   const to = parseDeDate(absence?.to);
@@ -310,7 +318,11 @@ function getTimePeriodSummary(data, fromDate, toDate) {
   const plannedMinutes = dailyRows.reduce((sum, row) => sum + row.plannedMinutes, 0);
   const appSaldoMinutes = totalMinutes - plannedMinutes;
   const stundenStartsaldoMinuten = getStundenStartsaldoMinutes(data?.settings);
-  const saldoMinutes = appSaldoMinutes + stundenStartsaldoMinuten;
+  const stundenAbgleichRows = getStundenAbgleichRows(data)
+    .filter((item) => isDateInRange(item?.datum, effectiveFromDate, toDate))
+    .sort((a, b) => compareDeDates(a?.datum, b?.datum));
+  const stundenAbgleichMinuten = stundenAbgleichRows.reduce((sum, item) => sum + Math.max(0, Number(item?.minuten || 0)), 0);
+  const saldoMinutes = appSaldoMinutes + stundenStartsaldoMinuten - stundenAbgleichMinuten;
   const absenceRows = getAbsenceRows(data).filter((item) => {
     const from = parseDeDate(item?.from);
     const to = parseDeDate(item?.to);
@@ -341,7 +353,9 @@ function getTimePeriodSummary(data, fromDate, toDate) {
     plannedMinutes,
     appSaldoMinutes,
     stundenStartsaldoMinuten,
+    stundenAbgleichMinuten,
     saldoMinutes,
+    stundenAbgleichRows,
     dailyRows,
     absenceRows,
     specialDayRows
@@ -400,6 +414,7 @@ function buildTimeOverviewPrintMarkup({ therapistName, summary }) {
           <tr><th>Ist-Zeit</th><td>${escapeHtml(formatHoursClockLabel(summary.totalMinutes))}</td></tr>
           <tr><th>Startsaldo vor App/FaSt</th><td>${escapeHtml(getSignedMinutesLabel(summary.stundenStartsaldoMinuten))}</td></tr>
           <tr><th>Seit Start erfasst</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.appSaldoMinutes)))} ${summary.appSaldoMinutes > 0 ? 'Plus' : summary.appSaldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
+          <tr><th>Abgeglichen</th><td>-${escapeHtml(formatHoursClockLabel(summary.stundenAbgleichMinuten || 0))}</td></tr>
           <tr><th>Gesamt</th><td>${escapeHtml(formatHoursClockLabel(Math.abs(summary.saldoMinutes)))} ${summary.saldoMinutes > 0 ? 'Plus' : summary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</td></tr>
         </tbody>
       </table>
@@ -1521,7 +1536,7 @@ export function showSettingsView({ onLock }) {
   };
 }
 
-export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "", showHolidayForm = false } = {}) {
+export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo = "", showTimeOverview = false, showAbsenceForm = "", showHolidayForm = false, showAbgleichForm = false } = {}) {
   bindLockButton(onLock);
   setCurrentView("dashboard");
 
@@ -1536,11 +1551,12 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const dashboardTodayPatients = getDashboardTodayPatients(runtimeData, todayDate);
   const absenceRows = timePeriodSummary.absenceRows;
   const specialDayRows = timePeriodSummary.specialDayRows;
+  const stundenAbgleichRows = timePeriodSummary.stundenAbgleichRows || [];
 
   render(`
     ${renderDashboardHeaderCard({ therapistName })}
 
-    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm || showHolidayForm ? 'open' : ''}>
+    <details class="accordion" ${showTimeOverview || hasTimeSummaryFilter || showAbsenceForm || showHolidayForm || showAbgleichForm ? 'open' : ''}>
       <summary>
         <span>Überblick</span>
         <span class="muted">Stunden</span>
@@ -1554,7 +1570,7 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
         <div class="row" style="margin-top:10px;">
           <button id="toggleDashboardTimeOverviewBtn" class="secondary">Zeitübersicht</button>
         </div>
-        <div id="dashboardTimeOverviewPanel" class="compact-card" style="margin-top:10px; display:${showTimeOverview || hasTimeSummaryFilter ? 'block' : 'none'};">
+        <div id="dashboardTimeOverviewPanel" class="compact-card" style="margin-top:10px; display:${showTimeOverview || hasTimeSummaryFilter || showAbgleichForm ? 'block' : 'none'};">
           <div style="font-weight:700; margin-bottom:10px;">Zeitübersicht</div>
           <label for="dashboardTimeSummaryFrom">Von</label>
           <input id="dashboardTimeSummaryFrom" type="text" value="${escapeHtml(timeSummaryFrom)}" placeholder="TT.MM.JJJJ" inputmode="numeric">
@@ -1566,6 +1582,7 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <button id="openUrlaubBtn" class="secondary">Urlaub</button>
             <button id="openKrankBtn" class="secondary">Krank</button>
             <button id="openHolidayBtn" class="secondary">Feiertage</button>
+            <button id="openAbgleichBtn" class="secondary">Stunden abgleichen</button>
           </div>
           <div class="row">
             <button id="runDashboardTimeSummaryBtn">Auswertung anzeigen</button>
@@ -1599,6 +1616,30 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <div id="dashboardHolidayMsg"></div>
           </div>
 
+          <div id="dashboardAbgleichFormPanel" class="compact-card" style="margin:12px 0 0 0; padding:10px; display:${showAbgleichForm ? 'block' : 'none'};">
+            <div style="font-weight:600; margin-bottom:10px;">Stunden abgleichen</div>
+            <label for="dashboardAbgleichTyp">Art</label>
+            <select id="dashboardAbgleichTyp">
+              <option value="auszahlung">Auszahlung</option>
+              <option value="frei">Überstundenfrei</option>
+            </select>
+
+            <label for="dashboardAbgleichDatum">Datum</label>
+            <input id="dashboardAbgleichDatum" type="text" placeholder="TT.MM.JJJJ" inputmode="numeric">
+
+            <label for="dashboardAbgleichStunden">Stunden</label>
+            <input id="dashboardAbgleichStunden" type="text" inputmode="numeric" placeholder="z. B. 30:00">
+
+            <label for="dashboardAbgleichNotiz">Notiz</label>
+            <input id="dashboardAbgleichNotiz" type="text" placeholder="optional">
+
+            <div class="row">
+              <button id="saveDashboardAbgleichBtn">Abgleich speichern</button>
+              <button id="cancelDashboardAbgleichBtn" class="secondary">Abbrechen</button>
+            </div>
+            <div id="dashboardAbgleichMsg"></div>
+          </div>
+
           <div id="zeituebersicht-content" style="display:none;">
             ${buildTimeOverviewPrintMarkup({ therapistName, summary: timePeriodSummary })}
           </div>
@@ -1608,10 +1649,26 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
             <div class="compact-meta">Startdatum: ${escapeHtml(timePeriodSummary.fastStartDatum || '—')}</div>
             <div class="compact-meta">Startsaldo vor App/FaSt: ${escapeHtml(getSignedMinutesLabel(timePeriodSummary.stundenStartsaldoMinuten))}</div>
             <div class="compact-meta">Seit Start erfasst: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.appSaldoMinutes)))} ${timePeriodSummary.appSaldoMinutes > 0 ? 'Plus' : timePeriodSummary.appSaldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
+            <div class="compact-meta">Abgeglichen: -${escapeHtml(formatHoursClockLabel(timePeriodSummary.stundenAbgleichMinuten || 0))}</div>
             <div class="compact-meta">Gesamt: ${escapeHtml(formatHoursClockLabel(Math.abs(timePeriodSummary.saldoMinutes)))} ${timePeriodSummary.saldoMinutes > 0 ? 'Plus' : timePeriodSummary.saldoMinutes < 0 ? 'Minus' : 'Ausgeglichen'}</div>
             <div class="compact-meta">Geleistete Zeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.totalMinutes))}</div>
             <div class="compact-meta">Sollzeit: ${escapeHtml(formatHoursClockLabel(timePeriodSummary.plannedMinutes))}</div>
             <div class="compact-meta">Zeitraum: ${escapeHtml(timePeriodSummary.fromDate || '—')} bis ${escapeHtml(timePeriodSummary.toDate || '—')}</div>
+          </div>
+
+          <div class="compact-card" style="margin-top:12px; padding:12px;">
+            <div style="font-size:18px; font-weight:700; margin-bottom:12px;">Stundenabgleiche</div>
+            <div class="list-stack">
+              ${stundenAbgleichRows.length === 0 ? `<p class="muted" style="margin:0;">Keine Abgleiche im gewählten Zeitraum.</p>` : ''}
+              ${stundenAbgleichRows.map((item) => `
+                <div class="compact-card" style="margin:0; padding:12px;">
+                  <div style="font-weight:700; font-size:16px; margin-bottom:4px;">${escapeHtml(getStundenAbgleichTypLabel(item.typ))}</div>
+                  <div class="compact-meta">${escapeHtml(item.datum || '—')} · -${escapeHtml(formatHoursClockLabel(item.minuten || 0))}</div>
+                  ${item.notiz ? `<div class="compact-meta">${escapeHtml(item.notiz)}</div>` : ''}
+                  <button class="delete-stunden-abgleich-btn secondary" data-abgleich-id="${escapeHtml(item.id || '')}" style="margin-top:12px; width:100%;">Löschen</button>
+                </div>
+              `).join('')}
+            </div>
           </div>
 
           <div class="compact-card" style="margin-top:12px; padding:12px;">
@@ -1754,11 +1811,13 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   const dashboardAbsenceFrom = document.getElementById("dashboardAbsenceFrom");
   const dashboardAbsenceTo = document.getElementById("dashboardAbsenceTo");
   const dashboardHolidayDate = document.getElementById("dashboardHolidayDate");
+  const dashboardAbgleichDatum = document.getElementById("dashboardAbgleichDatum");
   if (dashboardTimeSummaryFrom) bindDateAutoFormat(dashboardTimeSummaryFrom);
   if (dashboardTimeSummaryTo) bindDateAutoFormat(dashboardTimeSummaryTo);
   if (dashboardAbsenceFrom) bindDateAutoFormat(dashboardAbsenceFrom);
   if (dashboardAbsenceTo) bindDateAutoFormat(dashboardAbsenceTo);
   if (dashboardHolidayDate) bindDateAutoFormat(dashboardHolidayDate);
+  if (dashboardAbgleichDatum) bindDateAutoFormat(dashboardAbgleichDatum);
 
   const toggleDashboardTimeOverviewBtn = document.getElementById("toggleDashboardTimeOverviewBtn");
   if (toggleDashboardTimeOverviewBtn) {
@@ -1811,6 +1870,15 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
     };
   }
 
+  const openAbgleichBtn = document.getElementById("openAbgleichBtn");
+  if (openAbgleichBtn) {
+    openAbgleichBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showAbgleichForm: true });
+    };
+  }
+
   const cancelDashboardAbsenceBtn = document.getElementById("cancelDashboardAbsenceBtn");
   if (cancelDashboardAbsenceBtn) {
     cancelDashboardAbsenceBtn.onclick = () => {
@@ -1826,6 +1894,15 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
       const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
       const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
       showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showHolidayForm: false });
+    };
+  }
+
+  const cancelDashboardAbgleichBtn = document.getElementById("cancelDashboardAbgleichBtn");
+  if (cancelDashboardAbgleichBtn) {
+    cancelDashboardAbgleichBtn.onclick = () => {
+      const fromValue = document.getElementById("dashboardTimeSummaryFrom").value.trim();
+      const toValue = document.getElementById("dashboardTimeSummaryTo").value.trim();
+      showDashboardView({ onLock, timeSummaryFrom: fromValue, timeSummaryTo: toValue, showTimeOverview: true, showAbgleichForm: false });
     };
   }
 
@@ -1872,6 +1949,51 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
   }
 
 
+  const saveDashboardAbgleichBtn = document.getElementById("saveDashboardAbgleichBtn");
+  if (saveDashboardAbgleichBtn) {
+    saveDashboardAbgleichBtn.onclick = async () => {
+      const msg = document.getElementById("dashboardAbgleichMsg");
+      const typ = document.getElementById("dashboardAbgleichTyp").value === "frei" ? "frei" : "auszahlung";
+      const datumValue = document.getElementById("dashboardAbgleichDatum").value.trim();
+      const stundenValue = document.getElementById("dashboardAbgleichStunden").value.trim();
+      const notiz = document.getElementById("dashboardAbgleichNotiz").value.trim();
+      const normalizedDate = parseDeDate(datumValue);
+      const minuten = Math.abs(parseStundenStartsaldoInput(stundenValue));
+      msg.className = "error";
+      msg.textContent = "";
+
+      if (!normalizedDate) {
+        msg.textContent = "Bitte ein gültiges Datum eingeben.";
+        return;
+      }
+
+      if (!Number.isFinite(minuten) || minuten <= 0) {
+        msg.textContent = "Bitte Stunden im Format HH:MM eingeben, z. B. 30:00.";
+        return;
+      }
+
+      try {
+        mutateRuntimeData((data) => {
+          if (!Array.isArray(data.stundenAbgleiche)) data.stundenAbgleiche = [];
+          data.stundenAbgleiche.push({
+            id: `stundenabgleich_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+            typ,
+            datum: datumValue,
+            minuten,
+            notiz,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+        });
+        await queuePersistRuntimeData();
+        showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true, showAbgleichForm: false });
+      } catch (err) {
+        console.error(err);
+        msg.textContent = err?.message || "Abgleich konnte nicht gespeichert werden.";
+      }
+    };
+  }
+
   const saveDashboardHolidayBtn = document.getElementById("saveDashboardHolidayBtn");
   if (saveDashboardHolidayBtn) {
     saveDashboardHolidayBtn.onclick = async () => {
@@ -1916,6 +2038,19 @@ export function showDashboardView({ onLock, timeSummaryFrom = "", timeSummaryTo 
       }
     };
   }
+
+  document.querySelectorAll('.delete-stunden-abgleich-btn').forEach((button) => {
+    button.onclick = async () => {
+      const abgleichId = button.dataset.abgleichId || '';
+      if (!abgleichId) return;
+      if (!confirm('Diesen Stundenabgleich wirklich löschen?')) return;
+      mutateRuntimeData((data) => {
+        data.stundenAbgleiche = (data.stundenAbgleiche || []).filter((item) => item.id !== abgleichId);
+      });
+      await queuePersistRuntimeData();
+      showDashboardView({ onLock, timeSummaryFrom: document.getElementById("dashboardTimeSummaryFrom").value.trim(), timeSummaryTo: document.getElementById("dashboardTimeSummaryTo").value.trim(), showTimeOverview: true });
+    };
+  });
 
   document.querySelectorAll('.delete-absence-btn').forEach((button) => {
     button.onclick = async () => {

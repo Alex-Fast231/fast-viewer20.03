@@ -294,6 +294,22 @@ function normalizeSpecialDays(items) {
   }).filter((item) => item.date);
 }
 
+function normalizeStundenAbgleiche(items) {
+  return ensureArray(items).map((item) => {
+    const source = item && typeof item === "object" ? item : {};
+    const typ = ensureString(source.typ || source.type).trim().toLowerCase() === "frei" ? "frei" : "auszahlung";
+    const minuten = ensureIntegerNumber(source.minuten || source.minutes, 0);
+    return {
+      id: ensureString(source.id) || generateId("stundenabgleich"),
+      typ,
+      datum: ensureDeDateString(source.datum || source.date),
+      minuten: Math.max(0, Math.abs(minuten)),
+      notiz: ensureString(source.notiz || source.note),
+      createdAt: ensureIsoString(source.createdAt, new Date().toISOString()),
+      updatedAt: ensureIsoString(source.updatedAt, new Date().toISOString())
+    };
+  }).filter((item) => item.datum && item.minuten > 0);
+}
 
 function normalizeNachbestellHistory(items) {
   return ensureArray(items).map((item) => {
@@ -367,6 +383,7 @@ export function finalizeAppStructure(data) {
 
     abwesenheiten: normalizeAbwesenheiten(source.abwesenheiten),
     specialDays: normalizeSpecialDays(source.specialDays),
+    stundenAbgleiche: normalizeStundenAbgleiche(source.stundenAbgleiche),
 
     abgabeHistory: normalizeAbgabeHistory(source.abgabeHistory),
     nachbestellHistory: normalizeNachbestellHistory(source.nachbestellHistory),
